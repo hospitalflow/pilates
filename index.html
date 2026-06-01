@@ -647,7 +647,7 @@ function renderDashList(){
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
           <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:${c}">${r}<span style="font-size:13px;color:var(--mt);font-family:'Noto Sans KR',sans-serif"> 회 남음</span></div>
           <div style="display:flex;gap:5px;">
-            ${m.phone?'<button class="mc-action" onclick="event.stopPropagation();callMember(\''+m.phone+'\')">📞</button>':''}
+            ${m.phone?'<button class="mc-action" onclick="event.stopPropagation();callMember(\''+m.phone+'\')">📞 전화</button>':''}
             <button class="mc-action" onclick="event.stopPropagation();openRenewModal('${m.id}')">재등록</button>
             <button class="mc-action primary" onclick="event.stopPropagation();openSessionModal('${m.id}')">수업 완료</button>
           </div>
@@ -664,72 +664,66 @@ function showDetail(id){
   gv('detail');
   document.getElementById('det-edit-btn').onclick=()=>openEditModal(id);
   const r=remain(m),st=statusOf(m),c=colorOf(m);
-  const ss=loadS(),myS=(ss[id]||[]).sort((a,b)=>b.ts-a.ts);
-  // 버튼 동적 생성 (중첩 템플릿 리터럴 방지)
-  const phoneBtn = m.phone ? '<button class="mc-action" onclick="callMember(\''+m.phone+'\')">📞 전화</button>' : '';
-  const smsBtn = (m.phone && remain(m)<=5) ? '<button class="mc-action" onclick="sendRenewMsg(\''+m.phone+'\',\''+m.name+'\')">✉️ 재등록 문자</button>' : '';
-  const typeTag = m.classtype ? '<span class="type-tag '+typeClass(m.classtype)+'">'+m.classtype+'</span>' : '';
+  const lastTs=lastSessionDate(id);
+  const lastDateStr=lastTs?new Date(lastTs).toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\. /g,'-').replace(/-$/,''):'없음';
+  const startDate=m.start?new Date(m.start):null;
+  const expDate=startDate?new Date(startDate.getTime()+(m.total*7*24*60*60*1000/5)):null;
+  const daysLeft=expDate?Math.max(0,Math.ceil((expDate-new Date())/86400000)):null;
+  const expStr=startDate&&expDate?m.start+' ~ '+expDate.toISOString().split('T')[0]:'';
+  const typeTag=m.classtype?'<span class="type-tag '+typeClass(m.classtype)+'">'+m.classtype+'</span>':'';
 
-  document.getElementById('det-content').innerHTML=`
-    <div style="background:var(--s1);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:12px;">
-      <div style="display:flex;align-items:flex-start;gap:13px;margin-bottom:14px;">
-        <div class="det-av">${m.name[0]}</div>
-        <div style="flex:1;">
-          <div style="font-size:21px;font-weight:700;margin-bottom:3px;">${m.name}</div>
-          <div style="font-size:12px;color:var(--mt);margin-bottom:6px;">${m.phone||''}${m.goal?' · '+m.goal:''}</div>
-          <div style="display:flex;gap:5px;flex-wrap:wrap;">
-            <span class="mc-badge ${st.cls}">${st.txt}</span>
-            ${typeTag}
-          </div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:38px;font-weight:700;font-family:'DM Mono',monospace;color:${c}">${r}</div>
-          <div style="font-size:11px;color:var(--mt);">회 남음</div>
-        </div>
-      </div>
-      <div class="prog-bar" style="height:6px;margin-bottom:12px;"><div class="prog-fill" style="width:${pct(m)}%;background:${c};height:6px;"></div></div>
-      <div style="display:flex;gap:7px;flex-wrap:wrap;">
-        <button class="mc-action primary" onclick="openSessionModal('${m.id}')">✅ 수업 완료 (-1회)</button>
-        <button class="mc-action" onclick="openRenewModal('${m.id}')">🔄 재등록</button>
-        <button class="mc-action" onclick="openEditModal('${m.id}')">✏️ 수정</button>
-        ${phoneBtn}
-        ${smsBtn}
-      </div>
-    </div>
-    <div class="det-card">
-      <div class="det-card-hdr"><div class="det-card-title">기본 정보</div></div>
-      ${[['총 등록 횟수',m.total+'회'],['완료 횟수',m.used+'회'],['잔여 횟수',r+'회'],['수업 유형',m.classtype||'-'],['시작일',m.start||'-'],['금액',fmtPrice(m.price)],['목표',m.goal||'-'],['생일',m.birthday?new Date(m.birthday).toLocaleDateString('ko-KR'):'-']].map(([k,v])=>`<div class="det-row"><span class="det-key">${k}</span><span style="font-weight:500;">${v}</span></div>`).join('')}
-      <div class="det-row"><span class="det-key">주의사항</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-weight:500;">${m.memo||'-'}</span><button onclick="quickEditMemo('${m.id}')" style="font-size:10px;padding:2px 7px;border-radius:5px;border:1px solid var(--bd2);background:transparent;color:var(--mt);cursor:pointer;">✏️ 수정</button></span></div>
-    </div>
-    <div class="det-card">
-      <div class="det-card-hdr">
-        <div class="det-card-title">수업 기록 (${myS.length}건)</div>
-        <button class="hdr-btn" onclick="openSessionModal('${m.id}')" style="font-size:11px;padding:4px 9px;">+ 추가</button>
-      </div>
-      <div style="padding:0 14px;">
-        ${myS.length?myS.map((s,i)=>{
-          const d=new Date(s.ts);
-          const days=['일','월','화','수','목','금','토'];
-          const dateStr=`${d.getFullYear()}.${(d.getMonth()+1).toString().padStart(2,'0')}.${d.getDate().toString().padStart(2,'0')} (${days[d.getDay()]})`;
-          const timeStr=`${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-          return`<div style="padding:12px 0;border-bottom:1px solid var(--bd);">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
-              <div style="display:flex;align-items:center;gap:7px;">
-                <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--ac);font-weight:700;">${myS.length-i}회차</span>
-                <span style="font-size:12px;font-weight:600;color:var(--tx);">${dateStr}</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:10px;color:var(--mt);font-family:'DM Mono',monospace;">${timeStr}</span>
-                <button onclick="event.stopPropagation();deleteSession('${m.id}','${s.id||'_'+s.ts}')" style="background:var(--redd);border:1px solid var(--red);color:var(--red);border-radius:5px;padding:2px 7px;font-size:10px;cursor:pointer;">삭제</button>
-              </div>
-            </div>
-            <div style="font-size:12px;color:var(--dm);margin-bottom:3px;"><span class="type-tag ${typeClass(s.type)}">${s.type}</span></div>
-            <div style="font-size:13px;line-height:1.6;color:var(--tx);">${s.note||'수업 노트 없음'}</div>
-          </div>`;
-        }).join(''):'<div style="padding:16px 0;text-align:center;color:var(--mt);font-size:12px;">아직 기록이 없습니다</div>'}
-      </div>
-    </div>
-  `;
+  document.getElementById('det-content').innerHTML=
+    '<div style="text-align:center;padding:24px 16px 16px;background:var(--s1);border:1px solid var(--bd);border-radius:16px;margin-bottom:10px;">'
+    +'<div style="width:80px;height:80px;border-radius:50%;background:var(--acd);border:3px solid var(--ac);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:var(--ac);margin:0 auto 12px;">'+m.name[0]+'</div>'
+    +'<div style="font-size:22px;font-weight:700;margin-bottom:4px;">'+m.name+'</div>'
+    +(m.phone?'<div style="font-size:13px;color:var(--mt);margin-bottom:2px;">'+m.phone+'</div>':'')
+    +(m.goal?'<div style="font-size:12px;color:var(--mt);margin-bottom:8px;">'+m.goal+'</div>':'')
+    +'<div style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;margin-bottom:14px;"><span class="mc-badge '+st.cls+'">'+st.txt+'</span>'+typeTag+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--bd);border-radius:10px;overflow:hidden;margin-bottom:14px;">'
+    +'<div style="background:var(--s2);padding:10px;text-align:center;"><div style="font-size:10px;color:var(--mt);margin-bottom:3px;">등록일</div><div style="font-size:13px;font-weight:600;">'+(m.start||'-')+'</div></div>'
+    +'<div style="background:var(--s2);padding:10px;text-align:center;"><div style="font-size:10px;color:var(--mt);margin-bottom:3px;">최근 출석일</div><div style="font-size:13px;font-weight:600;color:'+(lastTs&&Date.now()-lastTs>14*86400000?'var(--red)':'var(--tx)')+';">'+lastDateStr+'</div></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+    +'<button class="mc-action primary" onclick="openSessionModal(\''+id+'\')" style="flex:1;">✅ 수업완료</button>'
+    +'<button class="mc-action" onclick="openRenewModal(\''+id+'\')" style="flex:1;">🔄 재등록</button>'
+    +(m.phone?'<button class="mc-action" onclick="location.href=\'tel:'+m.phone+'\'">📞 전화</button>':'')
+    +(m.phone&&r<=5?'<button class="mc-action" onclick="sendRenewMsg(\''+m.phone+'\',\''+m.name+'\')">✉️ 문자</button>':'')
+    +'<button class="mc-action" onclick="openEditModal(\''+id+'\')">✏️ 수정</button>'
+    +'</div></div>'
+    // 수강권 카드
+    +'<div style="position:relative;background:linear-gradient(135deg,#1a0a3a 0%,#5c2aaa 45%,#8b3fc8 100%);border-radius:22px;padding:22px;margin-bottom:12px;color:#fff;overflow:hidden;box-shadow:0 12px 40px rgba(92,42,170,0.5);">'
+    +'<div style="position:absolute;top:-40px;right:-40px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,0.06);"></div>'
+    +'<div style="position:absolute;bottom:-50px;left:20px;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,0.04);"></div>'
+    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;position:relative;">'
+    +'<div><div style="font-size:10px;opacity:0.6;letter-spacing:2px;text-transform:uppercase;margin-bottom:3px;">Pilates Studio</div>'
+    +'<div style="font-size:12px;opacity:0.8;">'+(m.classtype||'필라테스')+'</div></div>'
+    +'<div style="background:'+(r>0?'rgba(100,255,180,0.2)':'rgba(255,100,100,0.25)')+';border:1px solid '+(r>0?'rgba(100,255,180,0.4)':'rgba(255,100,100,0.4)')+';padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;color:'+(r>0?'#80ffbb':'#ffaaaa')+';letter-spacing:.3px;">'+(r>0?'● 이용중':'● 소진')+'</div></div>'
+    +'<div style="margin-bottom:18px;position:relative;">'
+    +'<div style="font-size:36px;font-weight:900;letter-spacing:-1px;line-height:1;margin-bottom:4px;">'+m.total+'<span style="font-size:18px;font-weight:600;opacity:0.8;margin-left:3px;">회권</span></div>'
+    +'<div style="font-size:12px;opacity:0.6;">'+m.name+' 님의 수강권</div></div>'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;position:relative;">'
+    +'<div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;text-align:center;">'
+    +'<div style="font-size:24px;font-weight:800;">'+r+'</div><div style="font-size:9px;opacity:0.6;margin-top:2px;letter-spacing:1px;">잔여</div></div>'
+    +'<div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;text-align:center;">'
+    +'<div style="font-size:24px;font-weight:800;">'+m.used+'</div><div style="font-size:9px;opacity:0.6;margin-top:2px;letter-spacing:1px;">완료</div></div>'
+    +'<div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;text-align:center;">'
+    +'<div style="font-size:24px;font-weight:800;">'+m.total+'</div><div style="font-size:9px;opacity:0.6;margin-top:2px;letter-spacing:1px;">전체</div></div></div>'
+    +'<div style="position:relative;margin-bottom:10px;">'
+    +'<div style="display:flex;justify-content:space-between;font-size:10px;opacity:0.6;margin-bottom:5px;">'
+    +'<span>'+pct(m)+'% 완료</span>'+(daysLeft!==null?'<span style="color:'+(daysLeft<14?'#ffaaaa':'rgba(255,255,255,0.7)')+';font-weight:700;">'+daysLeft+'일 남음</span>':'')+'</div>'
+    +'<div style="height:5px;background:rgba(255,255,255,0.12);border-radius:99px;overflow:hidden;">'
+    +'<div style="height:100%;width:'+pct(m)+'%;background:linear-gradient(90deg,rgba(255,255,255,0.9),rgba(200,180,255,0.7));border-radius:99px;"></div></div></div>'
+    +(expStr?'<div style="font-size:10px;opacity:0.5;position:relative;border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;margin-top:2px;">📅 '+expStr+'</div>':'')
+    +'</div>'
+    +'<div style="background:var(--s1);border:1px solid var(--bd);border-radius:16px;overflow:hidden;margin-bottom:10px;">'
+    +'<div style="display:flex;border-bottom:1px solid var(--bd);">'
+    +'<button onclick="switchDetTab(\'info\',\''+id+'\')" id="det-tab-info" style="flex:1;padding:11px;font-size:12px;font-weight:700;color:var(--ac);border:none;background:transparent;border-bottom:2px solid var(--ac);cursor:pointer;">기본정보</button>'
+    +'<button onclick="switchDetTab(\'sessions\',\''+id+'\')" id="det-tab-sessions" style="flex:1;padding:11px;font-size:12px;font-weight:500;color:var(--mt);border:none;background:transparent;cursor:pointer;">이용내역</button>'
+    +'<button onclick="switchDetTab(\'memo\',\''+id+'\')" id="det-tab-memo" style="flex:1;padding:11px;font-size:12px;font-weight:500;color:var(--mt);border:none;background:transparent;cursor:pointer;">메모</button>'
+    +'</div>'
+    +'<div id="det-tab-content" style="padding:14px;"></div>'
+    +'</div>';
+  switchDetTab('info',id);
 }
 
 function switchDetTab(tab,id){
