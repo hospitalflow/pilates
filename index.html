@@ -732,6 +732,65 @@ function showDetail(id){
   `;
 }
 
+function switchDetTab(tab,id){
+  const m=loadM().find(x=>x.id===id);if(!m)return;
+  const ss=loadS(),myS=(ss[id]||[]).sort((a,b)=>b.ts-a.ts);
+  ['info','sessions','memo'].forEach(t=>{
+    const btn=document.getElementById('det-tab-'+t);
+    if(!btn)return;
+    if(t===tab){btn.style.color='var(--ac)';btn.style.borderBottom='2px solid var(--ac)';btn.style.fontWeight='700';}
+    else{btn.style.color='var(--mt)';btn.style.borderBottom='none';btn.style.fontWeight='500';}
+  });
+  const el=document.getElementById('det-tab-content');if(!el)return;
+  if(tab==='info'){
+    el.innerHTML=[
+      ['수업 유형',m.classtype||'-'],
+      ['생일',m.birthday?new Date(m.birthday).toLocaleDateString('ko-KR'):'-'],
+      ['금액',fmtPrice(m.price)],
+      ['신앙연수',m.faith?m.faith+'년':'-'],
+    ].filter(([k,v])=>v&&v!=='-'||k==='수업 유형')
+    .map(([k,v])=>`<div class="det-row"><span class="det-key">${k}</span><span style="font-weight:500;">${v}</span></div>`).join('')
+    || '<div style="color:var(--mt);font-size:12px;text-align:center;padding:10px;">정보 없음</div>';
+  } else if(tab==='sessions'){
+    el.innerHTML=myS.length?myS.map((s,i)=>{
+      const d=new Date(s.ts);
+      const days=['일','월','화','수','목','금','토'];
+      const dateStr=d.getFullYear()+'.'+(d.getMonth()+1).toString().padStart(2,'0')+'.'+d.getDate().toString().padStart(2,'0')+' ('+days[d.getDay()]+')';
+      const timeStr=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+      return`<div style="padding:10px 0;border-bottom:1px solid var(--bd);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:10px;background:var(--acd);color:var(--ac);padding:1px 6px;border-radius:4px;font-weight:700;">${myS.length-i}회차</span>
+            <span style="font-size:12px;font-weight:600;">${dateStr}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:10px;color:var(--mt);">${timeStr}</span>
+            <button onclick="deleteSession('${id}','${s.id||'_'+s.ts}')" style="font-size:10px;padding:1px 6px;border-radius:4px;background:var(--redd);border:1px solid var(--red);color:var(--red);cursor:pointer;">삭제</button>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--dm);margin-bottom:2px;"><span class="type-tag ${typeClass(s.type)}">${s.type}</span></div>
+        <div style="font-size:12.5px;line-height:1.6;">${s.note||'노트 없음'}</div>
+      </div>`;
+    }).join('')
+    :`<div style="text-align:center;padding:20px;color:var(--mt);font-size:12px;">수업 기록이 없습니다</div>`;
+  } else if(tab==='memo'){
+    el.innerHTML=`<div style="margin-bottom:10px;">
+      <div style="font-size:12px;color:var(--mt);margin-bottom:6px;">주의사항 / 특이사항</div>
+      <div style="font-size:13px;line-height:1.7;min-height:40px;">${m.memo||'메모 없음'}</div>
+      <button onclick="quickEditMemo('${id}')" style="margin-top:10px;padding:6px 14px;border-radius:8px;background:var(--acd);border:1px solid var(--ac);color:var(--ac);font-size:12px;cursor:pointer;">✏️ 수정</button>
+    </div>
+    ${m.renewHistory&&m.renewHistory.length?`
+    <div style="border-top:1px solid var(--bd);padding-top:10px;margin-top:4px;">
+      <div style="font-size:12px;color:var(--mt);margin-bottom:6px;">등록 이력</div>
+      ${m.renewHistory.sort((a,b)=>new Date(b.date)-new Date(a.date)).map((h,i)=>`
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--bd);">
+        <span style="color:var(--mt);">${m.renewHistory.length-i}회차 · ${h.date}</span>
+        <span style="font-weight:600;">${h.count}회 · ${fmtPrice(h.price)}</span>
+      </div>`).join('')}
+    </div>`:''}`;
+  }
+}
+
 function renderHistory(){
   const ms=loadM().sort((a,b)=>(b.renewHistory||[]).length-(a.renewHistory||[]).length);
   document.getElementById('history-list').innerHTML=ms.length
