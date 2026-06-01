@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>필라테스 회원관리</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&family=Noto+Sans+KR:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+:root{
+  --bg:#0f1117; --s1:#181c25; --s2:#1f2433; --s3:#262d3d;
+  --bd:rgba(255,255,255,0.07); --bd2:rgba(255,255,255,0.13);
+  --tx:#dce4ee; --mt:#5a6880; --dm:#8898b0;
+  --ac:#5cc8b8; --ac2:#3faa98; --acd:rgba(92,200,184,0.13);
+  --red:#f07070; --redd:rgba(240,112,112,0.12);
+  --yel:#f0c060; --yeld:rgba(240,192,96,0.12);
+  --grn:#5cc8b8; --grnd:rgba(92,200,184,0.12);
+  --pnk:#80b8e8; --pnkd:rgba(128,184,232,0.12);
+  --bh:64px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Noto Sans KR',sans-serif;overflow-x:hidden;-webkit-font-smoothing:antialiased;}
+button,input,select,textarea{font-family:'Noto Sans KR',sans-serif;}
+button{cursor:pointer;}
+
+.app{display:flex;flex-direction:column;min-height:100vh;padding-bottom:var(--bh);}
+
+/* 만료 화면 */
+.exp-screen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;}
+.exp-logo{font-family:'Noto Serif KR',serif;font-size:22px;letter-spacing:1px;color:var(--ac);margin-bottom:32px;font-weight:700;}
+.exp-ico{font-size:56px;margin-bottom:20px;}
+.exp-title{font-size:20px;font-weight:700;margin-bottom:8px;}
+.exp-sub{font-size:13px;color:var(--mt);line-height:1.7;margin-bottom:28px;}
+.exp-btn{padding:14px 32px;border-radius:12px;background:var(--ac);border:none;color:#0f1117;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:12px;width:100%;max-width:280px;}
+.exp-contact{font-size:12px;color:var(--mt);}
+.exp-contact a{color:var(--ac);text-decoration:none;}
+
+/* 헤더 */
+.hdr{padding:14px 18px 12px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:40;background:rgba(15,17,23,0.96);backdrop-filter:blur(16px);}
+.hdr-logo{font-family:'Noto Serif KR',serif;font-size:18px;letter-spacing:1px;color:var(--tx);font-weight:700;}
+.hdr-right{display:flex;gap:8px;align-items:center;}
+.hdr-btn{padding:7px 13px;border-radius:8px;border:1px solid var(--bd2);background:transparent;color:var(--dm);font-size:12px;transition:all .14s;}
+.hdr-btn:hover{background:var(--s2);color:var(--tx);}
+.hdr-btn.primary{background:var(--ac);border-color:var(--ac);color:#0f1117;font-weight:700;}
+.hdr-btn.primary:hover{background:var(--ac2);}
+
+/* 탭바 */
+.tab-bar{position:fixed;bottom:0;left:0;right:0;z-index:50;height:var(--bh);background:rgba(15,17,23,0.97);backdrop-filter:blur(20px);border-top:1px solid var(--bd);display:flex;padding-bottom:env(safe-area-inset-bottom,0);}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;color:var(--mt);transition:color .14s;padding:6px 2px;font-size:10px;font-weight:500;}
+.tab.active{color:var(--ac);}
+.tab-ico{font-size:20px;line-height:1;}
+
+/* 뷰 */
+.view{display:none;padding:16px 16px 8px;}
+.view.active{display:block;}
+
+/* 통계 */
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;}
+.sc{background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:13px 12px;}
+.sc-label{font-size:10px;color:var(--mt);margin-bottom:5px;}
+.sc-val{font-size:24px;font-weight:700;font-family:'DM Mono',monospace;}
+.sc-sub{font-size:10px;color:var(--mt);margin-top:2px;}
+
+/* 필터 */
+.pill{padding:5px 11px;border-radius:7px;font-size:11.5px;border:1px solid var(--bd);color:var(--mt);background:transparent;cursor:pointer;transition:all .14s;}
+.pill:hover{background:var(--s2);color:var(--tx);}
+.pill.active{background:var(--s2);color:var(--tx);border-color:var(--bd2);}
+
+/* 회원 카드 */
+.member-card{background:var(--s1);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer;transition:all .16s;}
+.member-card:hover{border-color:var(--bd2);}
+.member-card.urgent{border-color:rgba(255,107,138,0.35);background:rgba(255,107,138,0.04);}
+.member-card.warn{border-color:rgba(255,204,102,0.3);background:rgba(255,204,102,0.03);}
+.mc-av{width:40px;height:40px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;background:var(--acd);color:var(--ac);}
+.mc-name{font-size:16px;font-weight:700;margin-bottom:2px;}
+.mc-meta{font-size:11px;color:var(--mt);}
+.mc-badge{padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;}
+.badge-red{background:var(--redd);color:var(--red);}
+.badge-yel{background:var(--yeld);color:var(--yel);}
+.badge-grn{background:var(--grnd);color:var(--grn);}
+.badge-pnk{background:var(--pnkd);color:var(--pnk);}
+.badge-ac{background:var(--acd);color:var(--ac);}
+.badge-gray{background:var(--s2);color:var(--mt);}
+.prog-bar{height:4px;background:var(--s3);border-radius:99px;overflow:hidden;margin-top:4px;}
+.prog-fill{height:100%;border-radius:99px;transition:width .4s;}
+.mc-action{padding:6px 12px;border-radius:7px;font-size:11.5px;font-weight:600;border:1px solid var(--bd2);background:transparent;color:var(--dm);transition:all .14s;}
+.mc-action:hover{background:var(--s2);color:var(--tx);}
+.mc-action.primary{background:var(--ac);border-color:var(--ac);color:#0f1117;}
+.mc-action.primary:hover{background:var(--ac2);color:#0f1117;}
+
+/* 수업 유형 태그 */
+.type-tag{display:inline-block;padding:2px 8px;border-radius:5px;font-size:10.5px;font-weight:600;margin-right:4px;margin-bottom:3px;}
+.type-ki{background:var(--acd);color:var(--ac);}
+.type-mat{background:var(--grnd);color:var(--grn);}
+.type-grp{background:var(--yeld);color:var(--yel);}
+.type-pri{background:var(--pnkd);color:var(--pnk);}
+.type-duo{background:var(--redd);color:var(--red);}
+.type-etc{background:var(--s2);color:var(--mt);}
+
+/* 빈 상태 */
+.empty{text-align:center;padding:48px 20px;color:var(--mt);}
+.empty-ico{font-size:40px;margin-bottom:12px;}
+
+/* 모달 */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);backdrop-filter:blur(6px);z-index:200;align-items:flex-end;justify-content:center;}
+.overlay.open{display:flex;}
+.modal{background:var(--s1);border:1px solid var(--bd2);border-radius:22px 22px 0 0;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;padding:22px 18px 28px;animation:slideUp .24s ease;position:relative;}
+@keyframes slideUp{from{transform:translateY(50px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+.modal-handle{width:36px;height:4px;border-radius:99px;background:var(--bd2);margin:0 auto 18px;}
+.modal-title{font-size:18px;font-weight:700;margin-bottom:3px;}
+.modal-sub{font-size:12px;color:var(--mt);margin-bottom:18px;}
+.modal-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--mt);font-size:22px;cursor:pointer;padding:4px;}
+.frow{margin-bottom:13px;}
+.flabel{font-size:11px;font-weight:700;color:var(--mt);letter-spacing:.5px;text-transform:uppercase;margin-bottom:5px;display:block;}
+.finput,.fselect,.ftextarea{width:100%;background:var(--bg);border:1px solid var(--bd2);border-radius:10px;padding:12px 13px;color:var(--tx);font-size:16px;outline:none;transition:border .14s;}
+.finput:focus,.fselect:focus,.ftextarea:focus{border-color:var(--ac);}
+.fselect{-webkit-appearance:none;cursor:pointer;}
+.ftextarea{resize:vertical;min-height:70px;font-size:15px;}
+.fgrid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd);}
+.btn-cancel{padding:10px 18px;border-radius:9px;border:1px solid var(--bd2);background:none;color:var(--dm);font-size:13px;cursor:pointer;}
+.btn-save{padding:10px 22px;border-radius:9px;background:var(--ac);border:none;color:#0f1117;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-save:hover{background:var(--ac2);}
+.btn-del{padding:10px 14px;border-radius:9px;background:var(--redd);border:1px solid var(--red);color:var(--red);font-size:13px;cursor:pointer;margin-right:auto;}
+
+/* 상세 */
+.det-av{width:52px;height:52px;border-radius:50%;background:var(--acd);color:var(--ac);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0;}
+.det-card{background:var(--s1);border:1px solid var(--bd);border-radius:12px;margin-bottom:10px;overflow:hidden;}
+.det-card-hdr{padding:10px 14px;border-bottom:1px solid var(--bd);background:var(--s2);display:flex;align-items:center;justify-content:space-between;}
+.det-card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--mt);}
+.det-row{display:flex;justify-content:space-between;padding:8px 14px;border-bottom:1px solid var(--bd);font-size:13px;}
+.det-row:last-child{border-bottom:none;}
+.det-key{color:var(--mt);}
+
+/* 히스토리 */
+.history-card{background:var(--s1);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:10px;}
+.reg-item{display:flex;align-items:center;justify-content:space-between;font-size:12px;padding:5px 8px;background:var(--s2);border-radius:7px;margin-top:4px;}
+
+/* 알림 배너 */
+.alert-banner{background:var(--redd);border:1px solid rgba(255,107,138,0.3);border-radius:10px;padding:10px 13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--red);}
+.warn-banner{background:var(--yeld);border:1px solid rgba(255,204,102,0.3);border-radius:10px;padding:10px 13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--yel);}
+
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+body.light-mode{
+  --bg:#f4f6f8; --s1:#ffffff; --s2:#eef2f7; --s3:#e2e8f0;
+  --bd:rgba(30,50,80,0.1); --bd2:rgba(30,50,80,0.18);
+  --tx:#1e3250; --mt:#7a8fa8; --dm:#4a6080;
+  --ac:#2a8a7a; --ac2:#1f6d60; --acd:rgba(42,138,122,0.1);
+  --red:#c0392b; --redd:rgba(192,57,43,0.09);
+  --yel:#b85c00; --yeld:rgba(184,92,0,0.09);
+  --grn:#2a8a7a; --grnd:rgba(42,138,122,0.1);
+  --pnk:#2563a8; --pnkd:rgba(37,99,168,0.1);
+}
+body.light-mode{background:linear-gradient(135deg,#eef2f7 0%,#f4f6f8 100%) !important;}
+body.light-mode .hdr{background:rgba(244,246,248,0.97) !important;}
+body.light-mode .tab-bar{background:rgba(255,255,255,0.97) !important;}
+body.light-mode .modal{background:#ffffff !important;box-shadow:0 -4px 24px rgba(30,50,80,0.1) !important;}
+body.light-mode .finput,body.light-mode .fselect,body.light-mode .ftextarea{background:#f4f6f8 !important;border-color:rgba(30,50,80,0.15) !important;}
+body.light-mode .det-card{background:#ffffff !important;box-shadow:0 2px 8px rgba(30,50,80,0.07) !important;}
+body.light-mode .history-card{background:#ffffff !important;box-shadow:0 2px 8px rgba(30,50,80,0.07) !important;}
+body.light-mode .member-card{background:#ffffff !important;box-shadow:0 2px 8px rgba(30,50,80,0.07) !important;}
+body.light-mode .sc{background:#ffffff !important;box-shadow:0 2px 8px rgba(30,50,80,0.07) !important;}
+body.light-mode .mc-action.primary{color:#ffffff !important;}
+body.light-mode .btn-save{color:#ffffff !important;}
+body.light-mode .hdr-btn.primary{color:#ffffff !important;}
+body.light-mode #cal-popup,body.light-mode #time-popup{background:#f4f6f8 !important;border-color:rgba(30,50,80,0.15) !important;}
+body.light-mode .exp-screen{background:#f4f6f8 !important;}
+body.light-mode .exp-btn{color:#ffffff !important;}
+@media(max-width:360px){.stat-row{grid-template-columns:repeat(2,1fr);}.fgrid2{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<!-- 만료 화면 -->
+<div class="exp-screen" id="exp-screen" style="display:none;">
+  <div class="exp-logo">Pilates Studio</div>
+  <div class="exp-ico">🔒</div>
+  <div class="exp-title">구독이 만료됐습니다</div>
+  <div class="exp-sub">사용 기간이 종료됐습니다.<br>갱신하시면 모든 데이터를 그대로 이용하실 수 있습니다.<br><br><strong style="color:var(--ac)">데이터는 이 기기에 안전하게 보관 중입니다.</strong></div>
+  <button class="exp-btn" onclick="sendRenewSms()">✉️ 갱신 문자 보내기</button>
+  <div class="exp-contact">전화: <a id="exp-contact-link" href="#">010-0000-0000</a></div>
+</div>
+
+<div class="app">
+
+<!-- 헤더 -->
+<div class="hdr">
+  <div style="display:flex;align-items:center;gap:8px;">
+    <img src="data:image/png;base64,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" style="height:36px;width:36px;object-fit:contain;border-radius:50%;" alt="로고">
+    <div>
+      <div class="hdr-logo">본스트레칭 &amp; PT</div>
+      <div style="font-size:10px;color:var(--mt);margin-top:1px;">통증 없는 몸, 가벼운 일상</div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <button class="hdr-btn" id="theme-toggle-btn" onclick="toggleTheme()" style="font-size:16px;padding:7px 10px;" title="다크/라이트 전환">☀️</button>
+    <button class="hdr-btn" onclick="doBackup()">💾 백업</button>
+    <button class="hdr-btn" onclick="doRestore()">📂 복원</button>
+    <button class="hdr-btn primary" onclick="openAddModal()">+ 회원</button>
+  </div>
+</div>
+
+<div id="scroll-wrap" style="flex:1;overflow-y:auto;">
+
+  <!-- 대시보드 -->
+  <div class="view active" id="view-dash">
+    <div class="stat-row" id="stat-row"></div>
+    <div id="dash-alerts"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div style="font-size:13px;font-weight:700;color:var(--dm);letter-spacing:.5px;text-transform:uppercase;">전체 회원</div>
+      <div style="display:flex;gap:5px;">
+        <button class="pill active" onclick="filterDash('all',this)">전체</button>
+        <button class="pill" onclick="filterDash('urgent',this)">⚠ 긴급</button>
+        <button class="pill" onclick="filterDash('active',this)">진행중</button>
+      </div>
+    </div>
+    <div style="margin-bottom:10px;">
+      <input class="finput" id="search-input" placeholder="🔍 회원 이름 검색..." oninput="renderDashList()" style="font-size:14px;">
+    </div>
+    <div id="dash-list"></div>
+  </div>
+
+  <!-- 상세 -->
+  <div class="view" id="view-detail">
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="hdr-btn" onclick="gv('dash')">← 목록</button>
+      <button class="hdr-btn" id="det-edit-btn">✏️ 수정</button>
+    </div>
+    <div id="det-content"></div>
+  </div>
+
+  <!-- 히스토리 -->
+  <div class="view" id="view-history">
+    <div style="margin-bottom:14px;">
+      <div style="font-family:'Noto Serif KR',serif;font-size:20px;color:var(--tx);margin-bottom:2px;font-weight:700;">History</div>
+      <div style="font-size:12px;color:var(--mt);">회원별 등록 이력 전체</div>
+    </div>
+    <div id="history-list"></div>
+  </div>
+
+  <!-- 통계 -->
+  <div class="view" id="view-stats">
+    <div style="margin-bottom:14px;">
+      <div style="font-family:'Noto Serif KR',serif;font-size:20px;color:var(--tx);margin-bottom:2px;font-weight:700;">통계</div>
+      <div style="font-size:12px;color:var(--mt);">매출 · 수업 · 생일</div>
+    </div>
+    <div id="stats-content"></div>
+  </div>
+
+</div>
+
+<!-- 하단 탭 -->
+<div class="tab-bar">
+  <div class="tab active" id="tab-dash" onclick="gv('dash')">
+    <div class="tab-ico">🤸</div><div>회원</div>
+  </div>
+  <div class="tab" id="tab-history" onclick="gv('history')">
+    <div class="tab-ico">📋</div><div>이력</div>
+  </div>
+  <div class="tab" id="tab-stats" onclick="gv('stats')">
+    <div class="tab-ico">📊</div><div>통계</div>
+  </div>
+</div>
+</div>
+
+<!-- 회원 등록/수정 모달 -->
+<div class="overlay" id="modal-member" onclick="closeOvOut(event,'modal-member')">
+<div class="modal">
+  <div class="modal-handle"></div>
+  <button class="modal-close" onclick="closeOv('modal-member')">✕</button>
+  <div class="modal-title" id="mm-title">회원 등록</div>
+  <div class="modal-sub">필라테스 회원 정보를 입력하세요</div>
+  <input type="hidden" id="mm-id">
+  <div class="fgrid2">
+    <div class="frow"><label class="flabel">이름 *</label><input class="finput" id="mm-name" placeholder="홍길동"></div>
+    <div class="frow"><label class="flabel">연락처</label><input class="finput" id="mm-phone" placeholder="010-0000-0000" type="tel"></div>
+  </div>
+  <div class="fgrid2">
+    <div class="frow"><label class="flabel">총 횟수 *</label><input class="finput" id="mm-total" placeholder="10" type="number" min="1"></div>
+    <div class="frow"><label class="flabel">시작일</label><input class="finput" id="mm-start" type="date"></div>
+  </div>
+  <div class="fgrid2">
+    <div class="frow"><label class="flabel">금액 (원)</label><input class="finput" id="mm-price" placeholder="300000" type="number"></div>
+    <div class="frow"><label class="flabel">수업 유형</label>
+      <select class="fselect" id="mm-classtype">
+        <option>기구 필라테스 (개인)</option>
+        <option>기구 필라테스 (듀엣)</option>
+        <option>매트 필라테스</option>
+        <option>그룹 수업</option>
+        <option>재활 필라테스</option>
+        <option>혼합</option>
+      </select>
+    </div>
+  </div>
+  <div class="fgrid2">
+    <div class="frow"><label class="flabel">목표</label><input class="finput" id="mm-goal" placeholder="체형 교정, 코어 강화, 산후 회복"></div>
+    <div class="frow"><label class="flabel">생일</label><input class="finput" id="mm-birthday" type="date"></div>
+  </div>
+  <div class="frow"><label class="flabel">메모 (부상·주의사항)</label><textarea class="ftextarea" id="mm-memo" placeholder="허리 디스크 주의, 산후 6개월, 무릎 수술 이력"></textarea></div>
+  <div class="modal-footer">
+    <button class="btn-del" id="mm-del-btn" onclick="delMemberFromModal()" style="display:none;">🗑 삭제</button>
+    <button class="btn-cancel" onclick="closeOv('modal-member')">취소</button>
+    <button class="btn-save" onclick="saveMember()">저장</button>
+  </div>
+</div>
+</div>
+
+<!-- 수업 완료 모달 -->
+<div class="overlay" id="modal-session" onclick="closeOvOut(event,'modal-session')">
+<div class="modal">
+  <div class="modal-handle"></div>
+  <button class="modal-close" onclick="closeOv('modal-session')">✕</button>
+  <div class="modal-title" id="ms-title">수업 완료</div>
+  <div class="modal-sub" id="ms-sub">횟수가 1회 차감됩니다</div>
+  <input type="hidden" id="ms-mid">
+  <div class="frow">
+    <label class="flabel">수업 날짜 &amp; 시간</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div style="position:relative;">
+        <div class="finput" id="ms-date-display" onclick="toggleCal()" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;">
+          <span id="ms-date-txt">날짜 선택</span><span style="font-size:16px;">📅</span>
+        </div>
+        <input type="hidden" id="ms-date">
+        <div id="cal-popup" style="display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:9999;background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:12px;min-width:260px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <button onclick="calNav(-1)" style="background:none;border:none;color:var(--ac);font-size:18px;cursor:pointer;padding:4px 8px;">‹</button>
+            <div id="cal-header" style="font-size:13px;font-weight:700;color:var(--tx);"></div>
+            <button onclick="calNav(1)" style="background:none;border:none;color:var(--ac);font-size:18px;cursor:pointer;padding:4px 8px;">›</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:6px;">
+            <div style="text-align:center;font-size:10px;color:var(--mt);padding:2px;">일</div>
+            <div style="text-align:center;font-size:10px;color:var(--mt);padding:2px;">월</div>
+            <div style="text-align:center;font-size:10px;color:var(--mt);padding:2px;">화</div>
+            <div style="text-align:center;font-size:10px;color:var(--mt);padding:2px;">수</div>
+            <div style="text-align:center;font-size:10px;color:var(--mt);padding:2px;">목</div>
+            <div style="text-align:center;font-size:10px;color:var(--mt);padding:2px;">금</div>
+            <div style="text-align:center;font-size:10px;color:var(--mt);padding:2px;">토</div>
+          </div>
+          <div id="cal-days" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;"></div>
+        </div>
+      </div>
+      <div style="position:relative;">
+        <div class="finput" id="ms-time-display" onclick="toggleTimePicker()" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;">
+          <span id="ms-time-txt">10:00</span><span style="font-size:16px;">⏰</span>
+        </div>
+        <input type="hidden" id="ms-time" value="10:00">
+        <div id="time-popup" style="display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:9999;background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:12px;min-width:180px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+          <div style="font-size:11px;color:var(--mt);margin-bottom:8px;text-align:center;">시간 선택</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+              <button onclick="adjustTime('h',1)" style="background:var(--s3);border:none;color:var(--ac);font-size:16px;padding:4px 12px;border-radius:6px;cursor:pointer;">▲</button>
+              <input id="time-h-display" type="number" min="0" max="23" value="10" onclick="event.stopPropagation()" oninput="onTimeHInput(this)" style="font-size:22px;font-weight:700;font-family:'DM Mono',monospace;color:var(--tx);width:52px;text-align:center;background:var(--s1);border:1px solid var(--bd2);border-radius:8px;padding:4px 2px;outline:none;-moz-appearance:textfield;">
+              <button onclick="adjustTime('h',-1)" style="background:var(--s3);border:none;color:var(--ac);font-size:16px;padding:4px 12px;border-radius:6px;cursor:pointer;">▼</button>
+            </div>
+            <div style="font-size:24px;font-weight:700;color:var(--mt);">:</div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+              <button onclick="adjustTime('m',1)" style="background:var(--s3);border:none;color:var(--ac);font-size:16px;padding:4px 12px;border-radius:6px;cursor:pointer;">▲</button>
+              <input id="time-m-display" type="number" min="0" max="59" value="0" onclick="event.stopPropagation()" oninput="onTimeMInput(this)" style="font-size:22px;font-weight:700;font-family:'DM Mono',monospace;color:var(--tx);width:52px;text-align:center;background:var(--s1);border:1px solid var(--bd2);border-radius:8px;padding:4px 2px;outline:none;-moz-appearance:textfield;">
+              <button onclick="adjustTime('m',-1)" style="background:var(--s3);border:none;color:var(--ac);font-size:16px;padding:4px 12px;border-radius:6px;cursor:pointer;">▼</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;">
+            <button onclick="setTimePreset(7,0)" style="background:var(--s3);border:1px solid var(--bd2);color:var(--dm);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;">07:00</button>
+            <button onclick="setTimePreset(9,0)" style="background:var(--s3);border:1px solid var(--bd2);color:var(--dm);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;">09:00</button>
+            <button onclick="setTimePreset(10,0)" style="background:var(--s3);border:1px solid var(--bd2);color:var(--dm);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;">10:00</button>
+            <button onclick="setTimePreset(11,0)" style="background:var(--s3);border:1px solid var(--bd2);color:var(--dm);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;">11:00</button>
+            <button onclick="setTimePreset(14,0)" style="background:var(--s3);border:1px solid var(--bd2);color:var(--dm);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;">14:00</button>
+            <button onclick="setTimePreset(16,0)" style="background:var(--s3);border:1px solid var(--bd2);color:var(--dm);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;">16:00</button>
+            <button onclick="setTimePreset(18,0)" style="background:var(--s3);border:1px solid var(--bd2);color:var(--dm);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;">18:00</button>
+            <button onclick="setTimePreset(19,0)" style="background:var(--s3);border:1px solid var(--bd2);color:var(--dm);font-size:11px;padding:4px 8px;border-radius:6px;cursor:pointer;">19:00</button>
+          </div>
+          <button onclick="toggleTimePicker()" style="width:100%;margin-top:10px;background:var(--ac);border:none;color:#1a0a2a;font-weight:700;font-size:12px;padding:8px;border-radius:8px;cursor:pointer;">확인</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="frow">
+    <label class="flabel">수업 유형</label>
+    <select class="fselect" id="ms-type">
+      <option>기구 필라테스 (개인)</option>
+      <option>기구 필라테스 (듀엣)</option>
+      <option>매트 필라테스</option>
+      <option>그룹 수업</option>
+      <option>재활 필라테스</option>
+      <option>기타</option>
+    </select>
+  </div>
+  <div class="frow"><label class="flabel">수업 노트</label><textarea class="ftextarea" id="ms-note" placeholder="오늘 집중한 동작, 자세 교정 포인트, 다음 수업 계획 등"></textarea></div>
+  <div class="modal-footer">
+    <button class="btn-cancel" onclick="closeOv('modal-session')">취소</button>
+    <button class="btn-save" onclick="saveSession()">저장 (-1회)</button>
+  </div>
+</div>
+</div>
+
+<!-- 재등록 모달 -->
+<div class="overlay" id="modal-renew" onclick="closeOvOut(event,'modal-renew')">
+<div class="modal">
+  <div class="modal-handle"></div>
+  <button class="modal-close" onclick="closeOv('modal-renew')">✕</button>
+  <div class="modal-title">재등록 🌸</div>
+  <div class="modal-sub" id="mr-sub"></div>
+  <input type="hidden" id="mr-mid">
+  <div class="fgrid2">
+    <div class="frow"><label class="flabel">추가 횟수 *</label><input class="finput" id="mr-total" placeholder="10" type="number" min="1"></div>
+    <div class="frow"><label class="flabel">금액 (원)</label><input class="finput" id="mr-price" placeholder="300000" type="number"></div>
+  </div>
+  <div class="frow"><label class="flabel">메모</label><input class="finput" id="mr-memo" placeholder="할인 적용, 패키지 변경 등"></div>
+  <div class="modal-footer">
+    <button class="btn-cancel" onclick="closeOv('modal-renew')">취소</button>
+    <button class="btn-save" onclick="saveRenew()">재등록 완료</button>
+  </div>
+</div>
+</div>
+
+<script>
+const SK='pilates_members_v1', SK2='pilates_sessions_v1';
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+const loadM=()=>{try{return JSON.parse(localStorage.getItem(SK))||[];}catch{return[];}};
+const saveM=a=>localStorage.setItem(SK,JSON.stringify(a));
+const loadS=()=>{try{return JSON.parse(localStorage.getItem(SK2))||{};}catch{return{};}};
+const saveS=o=>localStorage.setItem(SK2,JSON.stringify(o));
+
+function initSample(){
+  if(loadM().length>0) return;
+  const today=new Date().toISOString().split('T')[0];
+  saveM([
+    {id:'p1',name:'김지수',phone:'010-1111-2222',total:10,used:9,start:'2025-03-01',price:300000,classtype:'기구 필라테스 (개인)',goal:'체형 교정',memo:'허리 디스크 주의',renewHistory:[{date:'2025-03-01',count:10,price:300000}]},
+    {id:'p2',name:'이하은',phone:'010-3333-4444',total:20,used:8,start:'2025-04-10',price:560000,classtype:'기구 필라테스 (듀엣)',goal:'산후 회복',memo:'출산 후 3개월',renewHistory:[{date:'2025-04-10',count:20,price:560000}]},
+    {id:'p3',name:'박소연',phone:'010-5555-6666',total:8,used:8,start:'2025-05-01',price:240000,classtype:'매트 필라테스',goal:'유연성 향상',memo:'',renewHistory:[{date:'2025-05-01',count:8,price:240000}]},
+    {id:'p4',name:'최예진',phone:'010-7777-8888',total:12,used:3,start:today,price:360000,classtype:'그룹 수업',goal:'코어 강화',memo:'무릎 주의',renewHistory:[{date:today,count:12,price:360000}]},
+  ]);
+  const ss={};
+  ss['p1']=[{id:'s1',ts:Date.now()-86400000*2,type:'기구 필라테스 (개인)',note:'롤업 교정 집중. 허리 안정화 운동 추가. 다음 수업 스파인 스트레치 예정.'},{id:'s2',ts:Date.now()-86400000*5,type:'기구 필라테스 (개인)',note:'헌드레드 3세트 완성. 호흡 패턴 많이 좋아짐.'}];
+  ss['p2']=[{id:'s3',ts:Date.now()-86400000,type:'기구 필라테스 (듀엣)',note:'산후 코어 단계별 진행. 플랭크 30초 성공. 다음 단계 진입 가능.'}];
+  saveS(ss);
+}
+
+const remain=m=>Math.max(0,m.total-m.used);
+const pct=m=>m.total>0?Math.round((m.used/m.total)*100):0;
+function fmtDate(ts){const d=new Date(ts);return`${d.getFullYear()}.${(d.getMonth()+1).toString().padStart(2,'0')}.${d.getDate().toString().padStart(2,'0')}`;}
+function fmtPrice(n){if(!n)return'-';return Number(n).toLocaleString('ko-KR')+'원';}
+function typeClass(t){
+  if(!t)return'type-etc';
+  if(t.includes('개인'))return'type-ki';
+  if(t.includes('매트'))return'type-mat';
+  if(t.includes('그룹'))return'type-grp';
+  if(t.includes('듀엣'))return'type-duo';
+  if(t.includes('재활'))return'type-pri';
+  return'type-etc';
+}
+function statusOf(m){const r=remain(m);if(r===0)return{cls:'badge-red',txt:'소진'};if(r<=3)return{cls:'badge-red',txt:`잔여 ${r}회 ⚠`};if(r<=5)return{cls:'badge-yel',txt:`잔여 ${r}회`};return{cls:'badge-grn',txt:`잔여 ${r}회`};}
+function colorOf(m){const r=remain(m);if(r===0||r<=3)return'var(--red)';if(r<=5)return'var(--yel)';return'var(--grn)';}
+function lastSessionDate(id){const ss=loadS();const list=ss[id]||[];if(!list.length)return null;return Math.max(...list.map(s=>s.ts));}
+function fmtLastSession(ts){if(!ts)return'수업 기록 없음';const diff=Math.floor((Date.now()-ts)/86400000);if(diff===0)return'오늘 수업';if(diff===1)return'어제 수업';if(diff<7)return diff+'일 전 수업';if(diff<30)return Math.floor(diff/7)+'주 전 수업';return Math.floor(diff/30)+'개월 전 수업';}
+
+let curDet='';
+function gv(id){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+id).classList.add('active');
+  ['dash','history','stats'].forEach(k=>{const t=document.getElementById('tab-'+k);if(t)t.classList.toggle('active',k===id||(id==='detail'&&k==='dash'));});
+  document.getElementById('scroll-wrap').scrollTop=0;
+  if(id==='dash')renderDash();
+  if(id==='history')renderHistory();
+  if(id==='stats')renderStats();
+}
+
+let dashF='all';
+function filterDash(f,el){
+  dashF=f;
+  document.querySelectorAll('#view-dash .pill').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  renderDashList();
+}
+
+function renderDash(){
+  const ms=loadM();
+  const urgent=ms.filter(m=>remain(m)<=3).length;
+  const active=ms.filter(m=>remain(m)>0).length;
+  document.getElementById('stat-row').innerHTML=`
+    <div class="sc"><div class="sc-label">전체 회원</div><div class="sc-val" style="color:var(--ac)">${ms.length}</div><div class="sc-sub">등록</div></div>
+    <div class="sc"><div class="sc-label">⚠ 재등록 필요</div><div class="sc-val" style="color:var(--red)">${urgent}</div><div class="sc-sub">잔여 3회 이하</div></div>
+    <div class="sc"><div class="sc-label">✅ 진행중</div><div class="sc-val" style="color:var(--grn)">${active}</div><div class="sc-sub">잔여 있음</div></div>
+  `;
+  let alerts='';
+  ms.filter(m=>remain(m)===0).forEach(m=>{alerts+=`<div class="alert-banner">🚨 <strong>${m.name}</strong> 회원 횟수 소진 — 재등록 필요</div>`;});
+  ms.filter(m=>remain(m)>0&&remain(m)<=3).forEach(m=>{
+  alerts+=`<div class="warn-banner" style="align-items:center;">
+    <span style="flex:1;">⚡ <strong>${m.name}</strong> 잔여 ${remain(m)}회 — 재등록 안내 타이밍</span>
+    ${m.phone?'<button onclick="event.stopPropagation();sendRenewMsg(\''+m.phone+'\',\''+m.name+'\',this)" style="flex-shrink:0;padding:5px 10px;border-radius:7px;background:var(--yel);border:none;color:#0f1117;font-size:11px;font-weight:700;cursor:pointer;">✉️ 문자</button>':''}
+  </div>`;
+});
+  document.getElementById('dash-alerts').innerHTML=alerts;
+  renderDashList();
+}
+
+function renderDashList(){
+  const searchVal=(document.getElementById('search-input')?.value||'').trim().toLowerCase();
+  const ms=loadM().filter(m=>{
+    if(searchVal&&!m.name.toLowerCase().includes(searchVal)) return false;
+    if(dashF==='urgent')return remain(m)<=3;
+    if(dashF==='active')return remain(m)>0;
+    return true;
+  }).sort((a,b)=>remain(a)-remain(b));
+  document.getElementById('dash-list').innerHTML=ms.length
+    ?ms.map(m=>{
+      const r=remain(m),st=statusOf(m),c=colorOf(m),p=pct(m);
+      const cls=r===0||r<=3?'urgent':r<=5?'warn':'';
+      const lastTs=lastSessionDate(m.id);
+      const lastTxt=fmtLastSession(lastTs);
+      const lastColor=!lastTs?'var(--mt)':Date.now()-lastTs>14*86400000?'var(--red)':Date.now()-lastTs>7*86400000?'var(--yel)':'var(--mt)';
+      return`<div class="member-card ${cls}" onclick="showDetail('${m.id}')">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
+          <div style="display:flex;align-items:center;gap:10px;flex:1;">
+            <div class="mc-av">${m.name[0]}</div>
+            <div style="flex:1;">
+              <div class="mc-name">${m.name}</div>
+              <div class="mc-meta" style="display:flex;gap:8px;flex-wrap:wrap;">
+                <span>${m.phone||'연락처 없음'}</span>
+                <span style="color:${lastColor};font-size:10.5px;">🕐 ${lastTxt}</span>
+              </div>
+              ${m.classtype?'<div style="margin-top:3px;"><span class="type-tag '+typeClass(m.classtype)+'">'+m.classtype+'</span></div>':''}
+            </div>
+          </div>
+          <div class="mc-badge ${st.cls}">${st.txt}</div>
+        </div>
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--mt);">
+            <span>${m.used}/${m.total}회 완료</span><span>${p}%</span>
+          </div>
+          <div class="prog-bar"><div class="prog-fill" style="width:${p}%;background:${c};"></div></div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+          <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:${c}">${r}<span style="font-size:13px;color:var(--mt);font-family:'Noto Sans KR',sans-serif"> 회 남음</span></div>
+          <div style="display:flex;gap:5px;">
+            ${m.phone?'<button class="mc-action" onclick="event.stopPropagation();callMember(\''+m.phone+'\')">📞</button>':''}
+            <button class="mc-action" onclick="event.stopPropagation();openRenewModal('${m.id}')">재등록</button>
+            <button class="mc-action primary" onclick="event.stopPropagation();openSessionModal('${m.id}')">수업 완료</button>
+          </div>
+        </div>
+        ${m.memo?'<div style="margin-top:8px;font-size:11.5px;color:var(--mt);border-top:1px solid var(--bd);padding-top:7px;">📌 '+m.memo+'</div>':''}
+      </div>`;
+    }).join('')
+    :`<div class="empty"><div class="empty-ico">🤸</div>등록된 회원이 없습니다<br><br><button class="hdr-btn primary" onclick="openAddModal()">+ 첫 회원 등록</button></div>`;
+}
+
+function showDetail(id){
+  curDet=id;
+  const m=loadM().find(x=>x.id===id);if(!m)return;
+  gv('detail');
+  document.getElementById('det-edit-btn').onclick=()=>openEditModal(id);
+  const r=remain(m),st=statusOf(m),c=colorOf(m);
+  const ss=loadS(),myS=(ss[id]||[]).sort((a,b)=>b.ts-a.ts);
+  // 버튼 동적 생성 (중첩 템플릿 리터럴 방지)
+  const phoneBtn = m.phone ? '<button class="mc-action" onclick="callMember(\''+m.phone+'\')">📞 전화</button>' : '';
+  const smsBtn = (m.phone && remain(m)<=5) ? '<button class="mc-action" onclick="sendRenewMsg(\''+m.phone+'\',\''+m.name+'\')">✉️ 재등록 문자</button>' : '';
+  const typeTag = m.classtype ? '<span class="type-tag '+typeClass(m.classtype)+'">'+m.classtype+'</span>' : '';
+
+  document.getElementById('det-content').innerHTML=`
+    <div style="background:var(--s1);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:12px;">
+      <div style="display:flex;align-items:flex-start;gap:13px;margin-bottom:14px;">
+        <div class="det-av">${m.name[0]}</div>
+        <div style="flex:1;">
+          <div style="font-size:21px;font-weight:700;margin-bottom:3px;">${m.name}</div>
+          <div style="font-size:12px;color:var(--mt);margin-bottom:6px;">${m.phone||''}${m.goal?' · '+m.goal:''}</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;">
+            <span class="mc-badge ${st.cls}">${st.txt}</span>
+            ${typeTag}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:38px;font-weight:700;font-family:'DM Mono',monospace;color:${c}">${r}</div>
+          <div style="font-size:11px;color:var(--mt);">회 남음</div>
+        </div>
+      </div>
+      <div class="prog-bar" style="height:6px;margin-bottom:12px;"><div class="prog-fill" style="width:${pct(m)}%;background:${c};height:6px;"></div></div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;">
+        <button class="mc-action primary" onclick="openSessionModal('${m.id}')">✅ 수업 완료 (-1회)</button>
+        <button class="mc-action" onclick="openRenewModal('${m.id}')">🔄 재등록</button>
+        <button class="mc-action" onclick="openEditModal('${m.id}')">✏️ 수정</button>
+        ${phoneBtn}
+        ${smsBtn}
+      </div>
+    </div>
+    <div class="det-card">
+      <div class="det-card-hdr"><div class="det-card-title">기본 정보</div></div>
+      ${[['총 등록 횟수',m.total+'회'],['완료 횟수',m.used+'회'],['잔여 횟수',r+'회'],['수업 유형',m.classtype||'-'],['시작일',m.start||'-'],['금액',fmtPrice(m.price)],['목표',m.goal||'-'],['생일',m.birthday?new Date(m.birthday).toLocaleDateString('ko-KR'):'-']].map(([k,v])=>`<div class="det-row"><span class="det-key">${k}</span><span style="font-weight:500;">${v}</span></div>`).join('')}
+      <div class="det-row"><span class="det-key">주의사항</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-weight:500;">${m.memo||'-'}</span><button onclick="quickEditMemo('${m.id}')" style="font-size:10px;padding:2px 7px;border-radius:5px;border:1px solid var(--bd2);background:transparent;color:var(--mt);cursor:pointer;">✏️ 수정</button></span></div>
+    </div>
+    <div class="det-card">
+      <div class="det-card-hdr">
+        <div class="det-card-title">수업 기록 (${myS.length}건)</div>
+        <button class="hdr-btn" onclick="openSessionModal('${m.id}')" style="font-size:11px;padding:4px 9px;">+ 추가</button>
+      </div>
+      <div style="padding:0 14px;">
+        ${myS.length?myS.map((s,i)=>{
+          const d=new Date(s.ts);
+          const days=['일','월','화','수','목','금','토'];
+          const dateStr=`${d.getFullYear()}.${(d.getMonth()+1).toString().padStart(2,'0')}.${d.getDate().toString().padStart(2,'0')} (${days[d.getDay()]})`;
+          const timeStr=`${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+          return`<div style="padding:12px 0;border-bottom:1px solid var(--bd);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
+              <div style="display:flex;align-items:center;gap:7px;">
+                <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--ac);font-weight:700;">${myS.length-i}회차</span>
+                <span style="font-size:12px;font-weight:600;color:var(--tx);">${dateStr}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:10px;color:var(--mt);font-family:'DM Mono',monospace;">${timeStr}</span>
+                <button onclick="event.stopPropagation();deleteSession('${m.id}','${s.id||'_'+s.ts}')" style="background:var(--redd);border:1px solid var(--red);color:var(--red);border-radius:5px;padding:2px 7px;font-size:10px;cursor:pointer;">삭제</button>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--dm);margin-bottom:3px;"><span class="type-tag ${typeClass(s.type)}">${s.type}</span></div>
+            <div style="font-size:13px;line-height:1.6;color:var(--tx);">${s.note||'수업 노트 없음'}</div>
+          </div>`;
+        }).join(''):'<div style="padding:16px 0;text-align:center;color:var(--mt);font-size:12px;">아직 기록이 없습니다</div>'}
+      </div>
+    </div>
+  `;
+}
+
+function renderHistory(){
+  const ms=loadM().sort((a,b)=>(b.renewHistory||[]).length-(a.renewHistory||[]).length);
+  document.getElementById('history-list').innerHTML=ms.length
+    ?ms.map(m=>{
+      const hist=(m.renewHistory||[]).sort((a,b)=>new Date(b.date)-new Date(a.date));
+      const totalPaid=hist.reduce((s,h)=>s+(h.price||0),0);
+      return`<div class="history-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div>
+            <div style="font-size:15px;font-weight:700;">${m.name}</div>
+            <div style="font-size:11px;color:var(--mt);">${hist.length}회 등록 · 누적 ${fmtPrice(totalPaid)}</div>
+          </div>
+          <div class="mc-badge badge-ac">${hist.length}회차</div>
+        </div>
+        ${hist.map((h,i)=>'<div class="reg-item"><span style="color:var(--mt);font-size:11px;">'+(hist.length-i)+'회차 · '+h.date+'</span><span style="color:var(--ac);font-family:\'DM Mono\',monospace;font-weight:700;">'+h.count+'회 · '+fmtPrice(h.price)+'</span></div>').join('')}
+      </div>`;
+    }).join('')
+    :`<div class="empty"><div class="empty-ico">📋</div>이력이 없습니다</div>`;
+}
+
+function closeOv(id){document.getElementById(id).classList.remove('open');}
+function closeOvOut(e,id){if(e.target===document.getElementById(id))closeOv(id);}
+
+function openAddModal(){
+  document.getElementById('mm-id').value='';
+  document.getElementById('mm-title').textContent='회원 등록';
+  document.getElementById('mm-del-btn').style.display='none';
+  ['name','phone','goal','memo','birthday'].forEach(f=>document.getElementById('mm-'+f).value='');
+  document.getElementById('mm-total').value='10';
+  document.getElementById('mm-price').value='';
+  document.getElementById('mm-classtype').value='기구 필라테스 (개인)';
+  document.getElementById('mm-start').value=new Date().toISOString().split('T')[0];
+  document.getElementById('modal-member').classList.add('open');
+}
+function openEditModal(id){
+  const m=loadM().find(x=>x.id===id);if(!m)return;
+  document.getElementById('mm-id').value=id;
+  document.getElementById('mm-title').textContent=`${m.name} — 수정`;
+  document.getElementById('mm-del-btn').style.display='block';
+  document.getElementById('mm-name').value=m.name||'';
+  document.getElementById('mm-phone').value=m.phone||'';
+  document.getElementById('mm-total').value=m.total||10;
+  document.getElementById('mm-start').value=m.start||'';
+  document.getElementById('mm-price').value=m.price||'';
+  document.getElementById('mm-classtype').value=m.classtype||'기구 필라테스 (개인)';
+  document.getElementById('mm-goal').value=m.goal||'';
+  document.getElementById('mm-memo').value=m.memo||'';
+  document.getElementById('mm-birthday').value=m.birthday||'';
+  document.getElementById('modal-member').classList.add('open');
+}
+function saveMember(){
+  const name=document.getElementById('mm-name').value.trim();
+  const total=parseInt(document.getElementById('mm-total').value)||0;
+  if(!name){alert('이름을 입력해주세요.');return;}
+  if(!total){alert('총 횟수를 입력해주세요.');return;}
+  const id=document.getElementById('mm-id').value||uid();
+  const ms=loadM(),existing=ms.find(x=>x.id===id);
+  const startDate=document.getElementById('mm-start').value||new Date().toISOString().split('T')[0];
+  const price=parseInt(document.getElementById('mm-price').value)||0;
+  const data={id,name,phone:document.getElementById('mm-phone').value.trim(),total,used:existing?existing.used:0,start:startDate,price,classtype:document.getElementById('mm-classtype').value,goal:document.getElementById('mm-goal').value.trim(),memo:document.getElementById('mm-memo').value.trim(),birthday:document.getElementById('mm-birthday').value||'',renewHistory:existing?existing.renewHistory:[{date:startDate,count:total,price}]};
+  const idx=ms.findIndex(x=>x.id===id);
+  if(idx>=0)ms[idx]=data;else ms.push(data);
+  saveM(ms);closeOv('modal-member');
+  const av=document.querySelector('.view.active')?.id?.replace('view-','');
+  if(av==='detail')showDetail(id);else renderDash();
+}
+function delMemberFromModal(){
+  const id=document.getElementById('mm-id').value;if(!id)return;
+  if(!confirm('삭제하면 복구할 수 없습니다. 계속할까요?'))return;
+  saveM(loadM().filter(x=>x.id!==id));
+  const ss=loadS();delete ss[id];saveS(ss);
+  closeOv('modal-member');gv('dash');
+}
+
+function openSessionModal(mid){
+  const m=loadM().find(x=>x.id===mid);if(!m)return;
+  if(remain(m)<=0){alert(`${m.name} 회원의 잔여 횟수가 0입니다.\n재등록 후 수업을 기록해주세요.`);openRenewModal(mid);return;}
+  document.getElementById('ms-mid').value=mid;
+  document.getElementById('ms-title').textContent=`${m.name} — 수업 완료`;
+  document.getElementById('ms-sub').textContent=`잔여 ${remain(m)}회 → ${remain(m)-1}회로 변경됩니다`;
+  document.getElementById('ms-note').value='';
+  if(m.classtype) document.getElementById('ms-type').value=m.classtype.includes('기타')?'기타':m.classtype;
+  const now=new Date();
+  const days=['일','월','화','수','목','금','토'];
+  document.getElementById('ms-date').value=now.toISOString().split('T')[0];
+  document.getElementById('ms-date-txt').textContent=`${now.getMonth()+1}/${now.getDate()} (${days[now.getDay()]})`;
+  document.getElementById('ms-date-display').style.color='var(--tx)';
+  calYear=now.getFullYear();calMonth=now.getMonth();
+  tH=now.getHours();tM=Math.floor(now.getMinutes()/5)*5;
+  updateTimeDisplay();
+  document.getElementById('cal-popup').style.display='none';
+  document.getElementById('time-popup').style.display='none';
+  document.getElementById('modal-session').classList.add('open');
+}
+function saveSession(){
+  const mid=document.getElementById('ms-mid').value;
+  const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
+  ms[idx].used=(ms[idx].used||0)+1;saveM(ms);
+  const msDate=document.getElementById('ms-date').value;
+  const msTime=document.getElementById('ms-time').value||'10:00';
+  const msTsRaw=msDate?new Date(msDate+'T'+msTime+':00').getTime():Date.now();
+  const msTs=isNaN(msTsRaw)?Date.now():msTsRaw;
+  const ss=loadS();if(!ss[mid])ss[mid]=[];
+  const sid=uid();
+  ss[mid].unshift({id:sid,ts:msTs,type:document.getElementById('ms-type').value,note:document.getElementById('ms-note').value.trim()});
+  saveS(ss);closeOv('modal-session');
+  if(curDet===mid)showDetail(mid);else renderDash();
+}
+function deleteSession(mid,sid){
+  if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
+  const ss=loadS();if(!ss[mid])return;
+  ss[mid]=ss[mid].filter(s=>s.id!==sid);saveS(ss);
+  const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);
+  if(idx>=0&&ms[idx].used>0){ms[idx].used--;saveM(ms);}
+  if(curDet===mid)showDetail(mid);else renderDash();
+}
+
+function openRenewModal(mid){
+  const m=loadM().find(x=>x.id===mid);if(!m)return;
+  document.getElementById('mr-mid').value=mid;
+  document.getElementById('mr-sub').textContent=`${m.name} 회원 · 현재 잔여 ${remain(m)}회`;
+  document.getElementById('mr-total').value=m.total||10;
+  document.getElementById('mr-price').value=m.price||'';
+  document.getElementById('mr-memo').value='';
+  document.getElementById('modal-renew').classList.add('open');
+}
+function saveRenew(){
+  const mid=document.getElementById('mr-mid').value;
+  const addCount=parseInt(document.getElementById('mr-total').value)||0;
+  if(!addCount){alert('추가 횟수를 입력해주세요.');return;}
+  const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
+  const price=parseInt(document.getElementById('mr-price').value)||0;
+  ms[idx].used=0;ms[idx].total=addCount;ms[idx].price=price;
+  ms[idx].start=new Date().toISOString().split('T')[0];
+  if(!ms[idx].renewHistory)ms[idx].renewHistory=[];
+  ms[idx].renewHistory.push({date:new Date().toISOString().split('T')[0],count:addCount,price,memo:document.getElementById('mr-memo').value.trim()});
+  saveM(ms);closeOv('modal-renew');
+  if(curDet===mid)showDetail(mid);else renderDash();
+  alert(`🌸 ${ms[idx].name} 재등록 완료! ${addCount}회 추가됐습니다.`);
+}
+
+function doBackup(){
+  const payload={members:loadM(),sessions:loadS(),exportedAt:new Date().toISOString()};
+  const a=document.createElement('a');
+  a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(payload,null,2));
+  a.download=`필라테스회원관리_백업_${new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','')}json`;
+  a.click();
+  localStorage.setItem(BK_KEY,Date.now().toString());
+}
+function doRestore(){
+  const input=document.createElement('input');input.type='file';input.accept='.json';
+  input.onchange=e=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const data=JSON.parse(ev.target.result);
+        if(!data.members)throw new Error('올바른 백업 파일이 아닙니다.');
+        if(!confirm(`백업 파일에서 회원 ${data.members.length}명을 복원합니다.\n현재 데이터는 덮어씌워집니다. 계속할까요?`))return;
+        saveM(data.members);if(data.sessions)saveS(data.sessions);
+        alert('✅ 복원 완료!');gv('dash');
+      }catch(err){alert('복원 실패: '+err.message);}
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+// ── 커스텀 달력 ──
+let calYear=0,calMonth=0;
+function toggleCal(){
+  const p=document.getElementById('cal-popup');
+  const tp=document.getElementById('time-popup');
+  if(tp)tp.style.display='none';
+  const isOpen=p.style.display!=='none';
+  p.style.display=isOpen?'none':'block';
+  if(!isOpen)renderCal();
+}
+function toggleTimePicker(){
+  const p=document.getElementById('time-popup');
+  const cp=document.getElementById('cal-popup');
+  if(cp)cp.style.display='none';
+  p.style.display=p.style.display!=='none'?'none':'block';
+}
+function renderCal(){
+  const today=new Date();
+  if(!calYear){calYear=today.getFullYear();calMonth=today.getMonth();}
+  document.getElementById('cal-header').textContent=calYear+'년 '+(calMonth+1)+'월';
+  const first=new Date(calYear,calMonth,1);
+  const lastDay=new Date(calYear,calMonth+1,0).getDate();
+  const startDow=first.getDay();
+  const selVal=document.getElementById('ms-date').value;
+  let html='';
+  for(let i=0;i<startDow;i++)html+=`<div></div>`;
+  for(let d=1;d<=lastDay;d++){
+    const dateStr=calYear+'-'+(calMonth+1).toString().padStart(2,'0')+'-'+d.toString().padStart(2,'0');
+    const isToday=d===today.getDate()&&calMonth===today.getMonth()&&calYear===today.getFullYear();
+    const isSel=dateStr===selVal;
+    const dow=(startDow+d-1)%7;
+    const color=isSel?'#1a0a2a':dow===0?'var(--red)':dow===6?'#aabbff':'var(--tx)';
+    const bg=isSel?'var(--ac)':isToday?'var(--s3)':'transparent';
+    const border=isToday&&!isSel?'1px solid var(--bd2)':'none';
+    html+=`<div onclick="selectCalDay('${dateStr}')" style="text-align:center;padding:5px 2px;border-radius:7px;font-size:13px;cursor:pointer;background:${bg};color:${color};border:${border};font-weight:${isSel?700:400};">${d}</div>`;
+  }
+  document.getElementById('cal-days').innerHTML=html;
+}
+function selectCalDay(dateStr){
+  document.getElementById('ms-date').value=dateStr;
+  const d=new Date(dateStr);
+  const days=['일','월','화','수','목','금','토'];
+  document.getElementById('ms-date-txt').textContent=`${d.getMonth()+1}/${d.getDate()} (${days[d.getDay()]})`;
+  document.getElementById('ms-date-display').style.color='var(--tx)';
+  document.getElementById('cal-popup').style.display='none';
+}
+function calNav(dir){
+  calMonth+=dir;
+  if(calMonth>11){calMonth=0;calYear++;}
+  if(calMonth<0){calMonth=11;calYear--;}
+  renderCal();
+}
+let tH=10,tM=0;
+function adjustTime(part,dir){
+  if(part==='h'){tH=(tH+dir+24)%24;}else{tM=(tM+dir+60)%60;}
+  updateTimeDisplay();
+}
+function setTimePreset(h,m){tH=h;tM=m;updateTimeDisplay();document.getElementById('time-popup').style.display='none';}
+function updateTimeDisplay(){
+  const hStr=tH.toString().padStart(2,'0');
+  const mStr=tM.toString().padStart(2,'0');
+  const hEl=document.getElementById('time-h-display');
+  const mEl=document.getElementById('time-m-display');
+  if(hEl)hEl.value=hStr;
+  if(mEl)mEl.value=mStr;
+  document.getElementById('ms-time').value=hStr+':'+mStr;
+  document.getElementById('ms-time-txt').textContent=hStr+':'+mStr;
+}
+function onTimeHInput(el){
+  let v=parseInt(el.value);if(isNaN(v))return;
+  if(v>23)v=23;if(v<0)v=0;tH=v;
+  const mStr=tM.toString().padStart(2,'0');
+  document.getElementById('ms-time').value=tH.toString().padStart(2,'0')+':'+mStr;
+  document.getElementById('ms-time-txt').textContent=tH.toString().padStart(2,'0')+':'+mStr;
+}
+function onTimeMInput(el){
+  let v=parseInt(el.value);if(isNaN(v))return;
+  if(v>59)v=59;if(v<0)v=0;tM=v;
+  const hStr=tH.toString().padStart(2,'0');
+  document.getElementById('ms-time').value=hStr+':'+tM.toString().padStart(2,'0');
+  document.getElementById('ms-time-txt').textContent=hStr+':'+tM.toString().padStart(2,'0');
+}
+document.addEventListener('click',function(e){
+  const cal=document.getElementById('cal-popup');
+  const calBtn=document.getElementById('ms-date-display');
+  const tp=document.getElementById('time-popup');
+  const tpBtn=document.getElementById('ms-time-display');
+  if(cal&&!cal.contains(e.target)&&e.target!==calBtn&&!calBtn.contains(e.target))cal.style.display='none';
+  if(tp&&!tp.contains(e.target)&&e.target!==tpBtn&&!tpBtn.contains(e.target))tp.style.display='none';
+});
+
+// ── 만료일 관리 ──
+const EXP_DATE = '2026-06-30';   // ← 만료일 (YYYY-MM-DD)
+const CONTACT  = '010-2222-5208'; // ← 스튜디오 연락처
+
+function checkExpiry(){
+  const exp=new Date(EXP_DATE);exp.setHours(23,59,59,999);
+  const diffDays=Math.ceil((exp-new Date())/86400000);
+  if(diffDays<=0){showExpScreen();return false;}
+  if(diffDays<=7)showExpWarning(diffDays);
+  return true;
+}
+function showExpScreen(){
+  const link=document.getElementById('exp-contact-link');
+  link.href='tel:'+CONTACT;link.textContent=CONTACT;
+  document.getElementById('exp-screen').style.display='flex';
+}
+function showExpWarning(days){
+  if(document.getElementById('exp-warn-banner'))return;
+  const b=document.createElement('div');b.id='exp-warn-banner';
+  b.style.cssText='position:fixed;top:calc(56px + 8px);left:12px;right:12px;z-index:300;background:rgba(255,204,102,0.1);border:1px solid rgba(255,204,102,0.3);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--yel);display:flex;align-items:center;gap:8px;';
+  b.innerHTML=`<span>⚠️</span><span style="flex:1;"><strong>구독 ${days}일 후 만료</strong> — 갱신하지 않으면 앱이 잠깁니다</span><button onclick="sendRenewSms()" style="background:var(--ac);border:none;color:#0f1117;font-size:11px;font-weight:700;padding:4px 9px;border-radius:6px;cursor:pointer;">갱신</button>`;
+  document.body.appendChild(b);setTimeout(()=>{if(b.parentNode)b.remove();},8000);
+}
+function sendRenewSms(){
+  const msg=encodeURIComponent('안녕하세요! 필라테스 앱 구독 갱신 문의드립니다.');
+  window.location.href='sms:'+CONTACT+'?body='+msg;
+}
+
+// ── 자동 백업 알림 ──
+const BK_KEY='pilates_last_backup_v1';
+function checkBackupReminder(){
+  const last=parseInt(localStorage.getItem(BK_KEY)||'0');
+  const daysSince=Math.floor((Date.now()-last)/86400000);
+  if(!loadM().length)return;
+  if(last===0){localStorage.setItem(BK_KEY,Date.now().toString());return;}
+  if(daysSince>=7)showBackupBanner(daysSince);
+}
+function showBackupBanner(days){
+  if(document.getElementById('backup-banner'))return;
+  const b=document.createElement('div');b.id='backup-banner';
+  b.style.cssText='position:fixed;bottom:calc(var(--bh) + 10px);left:12px;right:12px;z-index:300;background:#181c25;border:1px solid var(--yel);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 24px rgba(0,0,0,0.6);animation:slideUp .3s ease;';
+  b.innerHTML=`<div style="font-size:22px;flex-shrink:0;">⚠️</div><div style="flex:1;"><div style="font-size:13px;font-weight:700;color:var(--ac);margin-bottom:2px;">백업 안 한 지 ${days}일 됐어요</div><div style="font-size:11px;color:var(--mt);">지금 백업하지 않으면 데이터가 사라질 수 있어요</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button onclick="dismissBackup()" style="padding:6px 10px;border-radius:7px;border:1px solid var(--bd2);background:transparent;color:var(--mt);font-size:11px;cursor:pointer;">나중에</button><button onclick="doBackupNow()" style="padding:6px 12px;border-radius:7px;background:var(--ac);border:none;color:#0f1117;font-size:11px;font-weight:700;cursor:pointer;">지금 백업</button></div>`;
+  document.body.appendChild(b);
+}
+function dismissBackup(){
+  const b=document.getElementById('backup-banner');if(b)b.remove();
+  localStorage.setItem(BK_KEY,(Date.now()-4*86400000).toString());
+}
+function doBackupNow(){
+  doBackup();
+  const b=document.getElementById('backup-banner');
+  if(b){b.style.borderColor='var(--grn)';b.style.background='rgba(136,221,204,0.08)';b.innerHTML=`<div style="font-size:22px;">✅</div><div style="font-size:13px;font-weight:700;color:var(--grn);">백업 완료! 안전하게 저장됐어요</div>`;setTimeout(()=>b.remove(),2500);}
+}
+
+// ── 다크/라이트 토글 ──
+const THEME_KEY='pilates_theme_v1';
+function initTheme(){
+  const saved=localStorage.getItem(THEME_KEY)||'dark';
+  applyTheme(saved);
+}
+function toggleTheme(){
+  const isLight=document.body.classList.contains('light-mode');
+  applyTheme(isLight?'dark':'light');
+}
+function applyTheme(theme){
+  const btn=document.getElementById('theme-toggle-btn');
+  if(theme==='light'){
+    document.body.classList.add('light-mode');
+    document.body.classList.remove('dark-applied');
+    if(btn)btn.textContent='🌙';
+    localStorage.setItem(THEME_KEY,'light');
+  } else {
+    document.body.classList.remove('light-mode');
+    if(btn)btn.textContent='☀️';
+    localStorage.setItem(THEME_KEY,'dark');
+  }
+}
+
+
+// ── 통계 렌더 ──
+function renderStats(){
+  const ms=loadM();
+  const ss=loadS();
+  const now=new Date();
+  const thisMonth=now.getFullYear()+'-'+(now.getMonth()+1).toString().padStart(2,'0');
+  const totalRevenue=ms.reduce((s,m)=>(m.renewHistory||[]).reduce((a,h)=>a+(h.price||0),s),0);
+  const monthRevenue=ms.reduce((s,m)=>(m.renewHistory||[]).filter(h=>h.date&&h.date.startsWith(thisMonth)).reduce((a,h)=>a+(h.price||0),s),0);
+  const allSessions=Object.values(ss).flat();
+  const monthSessions=allSessions.filter(s=>{const d=new Date(s.ts);return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();});
+  const birthdayMs=ms.filter(m=>{if(!m.birthday)return false;const b=new Date(m.birthday);return b.getMonth()===now.getMonth();});
+  const months=[];
+  for(let i=5;i>=0;i--){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const key=d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0');
+    const label=(d.getMonth()+1)+'월';
+    const cnt=allSessions.filter(s=>{const sd=new Date(s.ts);return sd.getFullYear()===d.getFullYear()&&sd.getMonth()===d.getMonth();}).length;
+    months.push({label,cnt,key});
+  }
+  const maxCnt=Math.max(...months.map(m=>m.cnt),1);
+  const typeCount={};
+  allSessions.forEach(s=>{const t=s.type||'기타';typeCount[t]=(typeCount[t]||0)+1;});
+  const totalType=allSessions.length||1;
+
+  let birthdayHtml='';
+  if(birthdayMs.length){
+    let rows=birthdayMs.map(m=>{
+      const b=new Date(m.birthday);
+      const dday=new Date(now.getFullYear(),b.getMonth(),b.getDate());
+      const diff=Math.ceil((dday-now)/86400000);
+      const label=diff===0?'🎉 오늘!':diff>0?'D-'+diff:'D+'+Math.abs(diff);
+      const color=diff===0?'var(--ac)':'var(--mt)';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);">'
+        +'<div><span style="font-weight:600;">'+m.name+'</span>'
+        +'<span style="font-size:11px;color:var(--mt);margin-left:6px;">'+(b.getMonth()+1)+'/'+(b.getDate())+'</span></div>'
+        +'<span style="font-size:12px;font-weight:700;color:'+color+';">'+label+'</span></div>';
+    }).join('');
+    birthdayHtml='<div class="det-card" style="margin-bottom:12px;">'
+      +'<div class="det-card-hdr"><div class="det-card-title">🎂 이번 달 생일</div></div>'
+      +'<div style="padding:10px 14px;">'+rows+'</div></div>';
+  }
+
+  let barHtml=months.map(m=>{
+    const h=Math.round((m.cnt/maxCnt)*64)+4;
+    const bg=m.key===thisMonth?'var(--ac)':'var(--acd)';
+    return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;">'
+      +'<div style="font-size:10px;color:var(--ac);font-weight:700;">'+(m.cnt||'')+'</div>'
+      +'<div style="width:100%;background:'+bg+';border-radius:4px 4px 0 0;height:'+h+'px;min-height:4px;"></div></div>';
+  }).join('');
+  let labelHtml=months.map(m=>'<div style="flex:1;text-align:center;font-size:10px;color:var(--mt);">'+m.label+'</div>').join('');
+
+  let typeHtml=Object.entries(typeCount).sort((a,b)=>b[1]-a[1]).map(function(entry){
+    const type=entry[0],cnt=entry[1];
+    const pct=Math.round(cnt/totalType*100);
+    return '<div style="margin-bottom:8px;">'
+      +'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">'
+      +'<span>'+type+'</span><span style="color:var(--ac);font-weight:700;">'+cnt+'회 ('+pct+'%)</span></div>'
+      +'<div style="height:5px;background:var(--s3);border-radius:99px;overflow:hidden;">'
+      +'<div style="height:100%;width:'+pct+'%;background:var(--ac);border-radius:99px;"></div></div></div>';
+  }).join('') || '<div style="color:var(--mt);font-size:12px;text-align:center;padding:10px;">수업 기록이 없습니다</div>';
+
+  let revenueRows=ms.map(m=>({name:m.name,total:(m.renewHistory||[]).reduce((s,h)=>s+(h.price||0),0),count:(m.renewHistory||[]).length}))
+    .sort((a,b)=>b.total-a.total)
+    .map(function(m,i){
+      return '<div class="det-row"><span class="det-key">'+(i+1)+'. '+m.name+'</span>'
+        +'<span style="font-weight:600;">'+m.total.toLocaleString('ko-KR')+'원 '
+        +'<span style="font-size:10px;color:var(--mt);">('+m.count+'회 등록)</span></span></div>';
+    }).join('') || '<div style="padding:14px;text-align:center;color:var(--mt);font-size:12px;">데이터 없음</div>';
+
+  document.getElementById('stats-content').innerHTML=
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">'
+    +'<div class="sc"><div class="sc-label">이번 달 매출</div><div class="sc-val" style="color:var(--ac);font-size:20px;">'+monthRevenue.toLocaleString('ko-KR')+'</div><div class="sc-sub">원</div></div>'
+    +'<div class="sc"><div class="sc-label">누적 총 매출</div><div class="sc-val" style="color:var(--tx);font-size:20px;">'+totalRevenue.toLocaleString('ko-KR')+'</div><div class="sc-sub">원</div></div>'
+    +'<div class="sc"><div class="sc-label">이번 달 수업</div><div class="sc-val" style="color:var(--ac);">'+monthSessions.length+'</div><div class="sc-sub">회</div></div>'
+    +'<div class="sc"><div class="sc-label">전체 회원</div><div class="sc-val" style="color:var(--tx);">'+ms.length+'</div><div class="sc-sub">명</div></div>'
+    +'</div>'
+    +birthdayHtml
+    +'<div class="det-card" style="margin-bottom:12px;"><div class="det-card-hdr"><div class="det-card-title">📈 월별 수업 횟수</div></div>'
+    +'<div style="padding:14px;">'
+    +'<div style="display:flex;align-items:flex-end;gap:6px;height:80px;margin-bottom:6px;">'+barHtml+'</div>'
+    +'<div style="display:flex;gap:6px;">'+labelHtml+'</div></div></div>'
+    +'<div class="det-card" style="margin-bottom:12px;"><div class="det-card-hdr"><div class="det-card-title">🤸 수업 유형 분포</div></div>'
+    +'<div style="padding:10px 14px;">'+typeHtml+'</div></div>'
+    +'<div class="det-card"><div class="det-card-hdr"><div class="det-card-title">💰 회원별 누적 매출</div></div>'
+    +'<div style="padding:0 14px;">'+revenueRows+'</div></div>';
+}
+
+// ── 메모 빠른 수정 ──
+function callMember(phone){
+  window.location.href='tel:'+phone;
+}
+function sendRenewMsg(phone,name){
+  const msg=encodeURIComponent('안녕하세요 '+name+'님 🌸 잔여 횟수가 곧 소진돼요. 꾸준히 이어오신 만큼 다음 달도 함께해요! 편한 시간에 연락 주세요 😊');
+  window.location.href='sms:'+phone+'?body='+msg;
+}
+function quickEditMemo(id){
+  const m=loadM().find(x=>x.id===id);if(!m)return;
+  const newMemo=prompt('주의사항 수정:', m.memo||'');
+  if(newMemo===null)return;
+  const ms=loadM(),idx=ms.findIndex(x=>x.id===id);
+  if(idx>=0){ms[idx].memo=newMemo.trim();saveM(ms);}
+  showDetail(id);
+}
+if(checkExpiry()){initTheme();initSample();renderDash();setTimeout(checkBackupReminder,1200);}
+</script>
+</body>
+</html>
