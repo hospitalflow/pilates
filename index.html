@@ -4,12 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="본스트레칭">
-<meta name="theme-color" content="#0f1117">
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon-192.png">
-<link rel="icon" type="image/png" href="icon-192.png">
 <title>필라테스 회원관리</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&family=Noto+Sans+KR:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
@@ -357,7 +351,15 @@ body.light-mode .exp-btn{color:#ffffff !important;}
   </div>
   <div class="fgrid2">
     <div class="frow"><label class="flabel">목표</label><input class="finput" id="mm-goal" placeholder="체형 교정, 코어 강화, 산후 회복"></div>
-    <div class="frow"><label class="flabel">생일</label><input class="finput" id="mm-birthday" type="date"></div>
+    <div class="frow">
+        <label class="flabel">생일</label>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px;">
+          <input class="finput" id="mm-birth-y" type="number" placeholder="년도 (1990)" oninput="syncBirthday()">
+          <input class="finput" id="mm-birth-m" type="number" placeholder="월" min="1" max="12" oninput="syncBirthday()">
+          <input class="finput" id="mm-birth-d" type="number" placeholder="일" min="1" max="31" oninput="syncBirthday()">
+        </div>
+        <input type="hidden" id="mm-birthday">
+      </div>
   </div>
   <div class="frow"><label class="flabel">메모 (부상·주의사항)</label><textarea class="ftextarea" id="mm-memo" placeholder="허리 디스크 주의, 산후 6개월, 무릎 수술 이력"></textarea></div>
   <div class="modal-footer">
@@ -812,6 +814,7 @@ function openAddModal(){
   document.getElementById('mm-title').textContent='회원 등록';
   document.getElementById('mm-del-btn').style.display='none';
   ['name','phone','goal','memo','birthday'].forEach(f=>document.getElementById('mm-'+f).value='');
+  ['mm-birth-y','mm-birth-m','mm-birth-d'].forEach(f=>{const el=document.getElementById(f);if(el)el.value='';});
   document.getElementById('mm-total').value='10';
   document.getElementById('mm-price').value='';
   document.getElementById('mm-classtype').value='기구 필라테스 (개인)';
@@ -832,6 +835,17 @@ function openEditModal(id){
   document.getElementById('mm-goal').value=m.goal||'';
   document.getElementById('mm-memo').value=m.memo||'';
   document.getElementById('mm-birthday').value=m.birthday||'';
+  if(m.birthday){
+    const parts=m.birthday.split('-');
+    const byEl=document.getElementById('mm-birth-y');
+    const bmEl=document.getElementById('mm-birth-m');
+    const bdEl=document.getElementById('mm-birth-d');
+    if(byEl)byEl.value=parts[0]||'';
+    if(bmEl)bmEl.value=parseInt(parts[1]||0)||'';
+    if(bdEl)bdEl.value=parseInt(parts[2]||0)||'';
+  } else {
+    ['mm-birth-y','mm-birth-m','mm-birth-d'].forEach(f=>{const el=document.getElementById(f);if(el)el.value='';});
+  }
   document.getElementById('modal-member').classList.add('open');
 }
 function saveMember(){
@@ -1742,6 +1756,19 @@ function sendTodayMsg(phone,name){
   const msg=encodeURIComponent('안녕하세요 '+name+'님 🤸 오늘 운동 날이십니다! 잊지 말고 오세요 😊');
   window.location.href='sms:'+phone+'?body='+msg;
 }
+function syncBirthday(){
+  const y=document.getElementById('mm-birth-y')?.value||'';
+  const m=document.getElementById('mm-birth-m')?.value||'';
+  const d=document.getElementById('mm-birth-d')?.value||'';
+  if(y&&m&&d){
+    const mm=String(parseInt(m)).padStart(2,'0');
+    const dd=String(parseInt(d)).padStart(2,'0');
+    document.getElementById('mm-birthday').value=y+'-'+mm+'-'+dd;
+  } else {
+    document.getElementById('mm-birthday').value='';
+  }
+}
+
 function quickEditMemo(id){
   const m=loadM().find(x=>x.id===id);if(!m)return;
   const newMemo=prompt('주의사항 수정:', m.memo||'');
