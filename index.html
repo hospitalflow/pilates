@@ -1779,5 +1779,25 @@ function quickEditMemo(id){
 }
 if(checkExpiry()){initTheme();initSample();renderDash();setTimeout(checkBackupReminder,1200);setTimeout(updateNotifyBadge,800);}
 </script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').then(reg=>{
+      reg.addEventListener('updatefound', ()=>{
+        const newWorker = reg.installing;
+        newWorker.addEventListener('statechange', ()=>{
+          if(newWorker.state==='installed' && navigator.serviceWorker.controller){
+            // 새 버전 감지 시 자동 새로고침
+            navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+              window.location.reload();
+            });
+            newWorker.postMessage({action:'skipWaiting'});
+          }
+        });
+      });
+    });
+  });
+}
+</script>
 </body>
 </html>
