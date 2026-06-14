@@ -569,6 +569,26 @@ body.light-mode .exp-btn{color:#ffffff !important;}
 
 <script>
 const SK='pilates_members_v1', SK2='pilates_sessions_v1';
+var _sesDelMap={};  // 삭제용 전역 맵
+window._doDelSes=function(key){
+  var info=_sesDelMap[key];
+  if(!info)return;
+  if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
+  var ss=loadS();
+  if(!ss[info.mid])return;
+  var before=ss[info.mid].length;
+  ss[info.mid]=ss[info.mid].filter(function(s){
+    var sid2=s.id?s.id:('_'+s.ts);
+    return sid2!==info.sid;
+  });
+  saveS(ss);
+  if(ss[info.mid].length<before){
+    var ms=loadM();
+    var idx=ms.findIndex(function(x){return x.id===info.mid;});
+    if(idx>=0&&ms[idx].used>0){ms[idx].used--;saveM(ms);}
+  }
+  if(curDet===info.mid)showDetail(info.mid);else renderDash();
+};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 const loadM=()=>{try{return JSON.parse(localStorage.getItem(SK))||[];}catch{return[];}};
 const saveM=a=>localStorage.setItem(SK,JSON.stringify(a));
@@ -760,66 +780,59 @@ function showDetail(id){
         <div class="det-card-title">이용내역 (${myS.length}건)</div>
         <button class="hdr-btn" onclick="openSessionModal('${m.id}')" style="font-size:11px;padding:4px 9px;">+ 추가</button>
       </div>
-      <div id="session-list-${m.id}"></div>
+      <div id="ses-list-area"></div>
     </div>
   `;
-  setTimeout(function(){renderSessionList(m,myS);},0);
-}
-
-function renderSessionList(m,myS){
-  var el=document.getElementById('session-list-'+m.id);
-  if(!el)return;
-  if(!myS.length){
-    el.innerHTML='<div style="padding:16px;text-align:center;color:var(--mt);font-size:12px;">아직 기록이 없습니다</div>';
-    return;
-  }
-  var days=['일','월','화','수','목','금','토'];
-  var groups={};
-  myS.forEach(function(s,i){
-    var d=new Date(s.ts);
-    var dateKey=d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 ('+days[d.getDay()]+')';
-    if(!groups[dateKey])groups[dateKey]=[];
-    groups[dateKey].push({s:s,idx:i});
-  });
-  var html='';
-  Object.keys(groups).forEach(function(dateKey){
-    var items=groups[dateKey];
-    html+='<div style="padding:10px 14px 0;">';
-    html+='<div style="font-size:12px;font-weight:700;color:var(--mt);margin-bottom:8px;">'+dateKey+'</div>';
-    items.forEach(function(item){
-      var s=item.s;
-      var sesNum=myS.length-item.idx;
-      var sid=s.id||('_'+s.ts);
-      var d=new Date(s.ts);
-      var timeStr=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
-      var tc=typeClass(s.type);
-      html+='<div style="background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:13px 14px;margin-bottom:8px;">';
-      html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
-      html+='<div style="font-size:14px;font-weight:700;">'+m.name+' 님</div>';
-      html+='<span style="background:var(--acd);color:var(--ac);padding:2px 9px;border-radius:6px;font-size:11px;font-weight:700;">'+timeStr+'</span>';
-      html+='</div>';
-      html+='<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mt);margin-bottom:4px;">';
-      html+='<span>사용된 수강권</span><span style="color:var(--tx);font-weight:600;">'+m.total+'회권</span>';
-      html+='</div>';
-      html+='<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mt);margin-bottom:6px;">';
-      html+='<span>수업 유형</span><span class="type-tag '+tc+'">'+s.type+'</span>';
-      html+='</div>';
-      if(s.note){html+='<div style="font-size:12px;color:var(--dm);border-top:1px solid var(--bd);padding-top:6px;margin-top:4px;">'+s.note+'</div>';}
-      html+='<div style="display:flex;justify-content:space-between;margin-top:8px;">';
-      html+='<span style="font-size:10px;color:var(--mt);">'+sesNum+'회차</span>';
-      html+='<button data-mid="'+m.id+'" data-sid="'+sid+'" class="del-ses-btn" style="background:transparent;border:1px solid var(--bd2);color:var(--mt);border-radius:5px;padding:2px 9px;font-size:10px;cursor:pointer;">삭제</button>';
-
-      html+='</div></div>';
+  (function(){
+    var days2=['일','월','화','수','목','금','토'];
+    var remain2=m.total-m.used;
+    var h='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--bd);">';
+    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--ac);">'+remain2+'</div><div style="font-size:10px;color:var(--mt);">잔여</div></div>';
+    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--tx);">'+m.used+'</div><div style="font-size:10px;color:var(--mt);">완료</div></div>';
+    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--mt);">'+m.total+'</div><div style="font-size:10px;color:var(--mt);">전체</div></div>';
+    h+='</div>';
+    if(!myS.length){
+      h+='<div style="padding:16px;text-align:center;color:var(--mt);font-size:12px;">아직 기록이 없습니다</div>';
+    } else {
+      _sesDelMap={};
+      var groups2={};
+      myS.forEach(function(s,i){
+        var d2=new Date(s.ts);
+        var dk=d2.getFullYear()+'년 '+(d2.getMonth()+1)+'월 '+d2.getDate()+'일 ('+days2[d2.getDay()]+')';
+        if(!groups2[dk])groups2[dk]=[];
+        groups2[dk].push({s:s,i:i});
+      });
+      Object.keys(groups2).forEach(function(dk){
+        h+='<div style="border-top:1px solid var(--bd);padding:8px 14px 0;">';
+        h+='<div style="font-size:11px;font-weight:700;color:var(--mt);margin-bottom:6px;">'+dk+'</div>';
+        groups2[dk].forEach(function(item){
+          var s=item.s;
+          var sesNum=myS.length-item.i;
+          var sid=s.id?s.id:('_'+s.ts);
+          var key='k'+sesNum+'t'+s.ts;
+          _sesDelMap[key]={mid:m.id,sid:sid};
+          var d2=new Date(s.ts);
+          var t=d2.getHours().toString().padStart(2,'0')+':'+d2.getMinutes().toString().padStart(2,'0');
+          var rem=m.total-sesNum;
+          h+='<div class="det-row"><span class="det-key">'+sesNum+'회차</span><span style="font-weight:700;color:var(--ac);">'+t+'</span></div>';
+          h+='<div class="det-row"><span class="det-key">수업 유형</span><span class="type-tag '+typeClass(s.type)+'">'+s.type+'</span></div>';
+          h+='<div class="det-row"><span class="det-key">수업 후 잔여</span><span style="font-weight:600;color:'+(rem<=3?'var(--red)':'var(--tx)')+';">'+rem+'회</span></div>';
+          if(s.note)h+='<div class="det-row"><span class="det-key">노트</span><span style="color:var(--dm);">'+s.note+'</span></div>';
+          h+='<div style="display:flex;justify-content:flex-end;padding:4px 0 8px;"><button class="ses-del" data-key="'+key+'" style="background:var(--redd);border:1px solid var(--red);color:var(--red);border-radius:5px;padding:3px 10px;font-size:10px;cursor:pointer;">🗑 삭제</button></div>';
+        });
+        h+='</div>';
+      });
+    }
+    var area=document.getElementById('ses-list-area');
+    if(area)area.innerHTML=h;
+    area.addEventListener('click',function(e){
+      var btn=e.target.closest('.ses-del');
+      if(!btn)return;
+      e.stopPropagation();
+      var k=btn.getAttribute('data-key');
+      _doDelSes(k);
     });
-    html+='</div>';
-  });
-  el.innerHTML=html;
-  el.onclick=function(e){
-    var btn=e.target.closest('.del-ses-btn');
-    if(!btn)return;
-    e.stopPropagation();
-    deleteSession(btn.getAttribute('data-mid'),btn.getAttribute('data-sid'));
-  };
+  })();
 }
 
 function renderHistory(){
@@ -949,6 +962,24 @@ function saveSession(){
   saveS(ss);closeOv('modal-session');
   if(curDet===mid)showDetail(mid);else renderDash();
 }
+window.delSes=function(mid,sid){
+  if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
+  var ss=loadS();
+  if(!ss[mid])return;
+  var before=ss[mid].length;
+  ss[mid]=ss[mid].filter(function(s){
+    if(s.id)return s.id!==sid;
+    return('_'+s.ts)!==sid;
+  });
+  saveS(ss);
+  if(ss[mid].length<before){
+    var ms=loadM();
+    var idx=ms.findIndex(function(x){return x.id===mid;});
+    if(idx>=0&&ms[idx].used>0){ms[idx].used--;saveM(ms);}
+  }
+  if(curDet===mid)showDetail(mid);else renderDash();
+};
+
 function deleteSession(mid,sid){
   if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
   var ss=loadS();
