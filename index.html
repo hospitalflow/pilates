@@ -807,12 +807,19 @@ function renderSessionList(m,myS){
       if(s.note){html+='<div style="font-size:12px;color:var(--dm);border-top:1px solid var(--bd);padding-top:6px;margin-top:4px;">'+s.note+'</div>';}
       html+='<div style="display:flex;justify-content:space-between;margin-top:8px;">';
       html+='<span style="font-size:10px;color:var(--mt);">'+sesNum+'회차</span>';
-      html+='<button onclick="deleteSession('+JSON.stringify(m.id)+','+JSON.stringify(sid)+')" style="background:transparent;border:1px solid var(--bd2);color:var(--mt);border-radius:5px;padding:2px 9px;font-size:10px;cursor:pointer;">삭제</button>';
+      html+='<button data-mid="'+m.id+'" data-sid="'+sid+'" class="del-ses-btn" style="background:transparent;border:1px solid var(--bd2);color:var(--mt);border-radius:5px;padding:2px 9px;font-size:10px;cursor:pointer;">삭제</button>';
+
       html+='</div></div>';
     });
     html+='</div>';
   });
   el.innerHTML=html;
+  el.onclick=function(e){
+    var btn=e.target.closest('.del-ses-btn');
+    if(!btn)return;
+    e.stopPropagation();
+    deleteSession(btn.getAttribute('data-mid'),btn.getAttribute('data-sid'));
+  };
 }
 
 function renderHistory(){
@@ -944,10 +951,22 @@ function saveSession(){
 }
 function deleteSession(mid,sid){
   if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
-  const ss=loadS();if(!ss[mid])return;
-  ss[mid]=ss[mid].filter(s=>s.id!==sid);saveS(ss);
-  const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);
-  if(idx>=0&&ms[idx].used>0){ms[idx].used--;saveM(ms);}
+  var ss=loadS();
+  if(!ss[mid])return;
+  var before=ss[mid].length;
+  ss[mid]=ss[mid].filter(function(s){
+    // id 필드 있으면 id로 비교, 없으면 _ts로 비교
+    if(s.id){return s.id!==sid;}
+    return('_'+s.ts)!==sid;
+  });
+  var after=ss[mid].length;
+  saveS(ss);
+  if(before!==after){
+    // 실제로 삭제됐을 때만 횟수 복원
+    var ms=loadM();
+    var idx=ms.findIndex(function(x){return x.id===mid;});
+    if(idx>=0&&ms[idx].used>0){ms[idx].used--;saveM(ms);}
+  }
   if(curDet===mid)showDetail(mid);else renderDash();
 }
 
