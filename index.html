@@ -760,50 +760,59 @@ function showDetail(id){
         <div class="det-card-title">이용내역 (${myS.length}건)</div>
         <button class="hdr-btn" onclick="openSessionModal('${m.id}')" style="font-size:11px;padding:4px 9px;">+ 추가</button>
       </div>
-      <div>
-        ${(()=>{
-          if(!myS.length)return'<div style=\"padding:16px;text-align:center;color:var(--mt);font-size:12px;\">아직 기록이 없습니다</div>';
-          // 날짜별 그룹핑
-          const groups={};
-          const days=['일','월','화','수','목','금','토'];
-          myS.forEach((s,i)=>{
-            const d=new Date(s.ts);
-            const dateKey=d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 ('+days[d.getDay()]+')';
-            if(!groups[dateKey])groups[dateKey]=[];
-            groups[dateKey].push({s,i});
-          });
-          return Object.entries(groups).map(([dateKey,items])=>{
-            const rows=items.map(function(item){
-              const s=item.s; const i=item.i;
-              const sesNum=myS.length-i;
-              const sid=s.id||('_'+s.ts);
-              const d=new Date(s.ts);
-              const timeStr=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
-              return'<div style=\"background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:13px 14px;margin-bottom:8px;\">'
-                +'<div style=\"display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;\">'
-                +'<div style=\"font-size:14px;font-weight:700;">'+ m.name +' 님</div>'
-                +'<span style=\"background:var(--acd);color:var(--ac);padding:2px 9px;border-radius:6px;font-size:11px;font-weight:700;\">'+timeStr+'</span>'
-                +'</div>'
-                +'<div style=\"display:flex;justify-content:space-between;font-size:12px;color:var(--mt);margin-bottom:4px;\">'
-                +'<span>사용된 수강권</span><span style=\"color:var(--tx);font-weight:600;">'+m.total+'회권</span>'
-                +'</div>'
-                +'<div style=\"display:flex;justify-content:space-between;font-size:12px;color:var(--mt);margin-bottom:6px;\">'
-                +'<span>수업 유형</span><span class=\"type-tag '+typeClass(s.type)+'\">'+s.type+'</span>'
-                +'</div>'
-                +(s.note?'<div style=\"font-size:12px;color:var(--dm);border-top:1px solid var(--bd);padding-top:6px;margin-top:4px;\">'+s.note+'</div>':'')
-                +'<div style=\"display:flex;justify-content:space-between;margin-top:8px;\">'
-                +'<span style=\"font-size:10px;color:var(--mt);\">'+sesNum+'회차</span>'
-                +'<button onclick=\"event.stopPropagation();deleteSession(\'${m.id}\',\''+sid+'\')\" style=\"background:transparent;border:1px solid var(--bd2);color:var(--mt);border-radius:5px;padding:2px 9px;font-size:10px;cursor:pointer;\">예약 취소</button>'
-                +'</div></div>';
-            }).join('');
-            return'<div style=\"padding:10px 14px 0;\">'
-              +'<div style=\"font-size:12px;font-weight:700;color:var(--mt);margin-bottom:8px;\">'+dateKey+'</div>'
-              +rows+'</div>';
-          }).join('');
-        })()}
-      </div>
+      <div id="session-list-${m.id}"></div>
     </div>
   `;
+  setTimeout(function(){renderSessionList(m,myS);},0);
+}
+
+function renderSessionList(m,myS){
+  var el=document.getElementById('session-list-'+m.id);
+  if(!el)return;
+  if(!myS.length){
+    el.innerHTML='<div style="padding:16px;text-align:center;color:var(--mt);font-size:12px;">아직 기록이 없습니다</div>';
+    return;
+  }
+  var days=['일','월','화','수','목','금','토'];
+  var groups={};
+  myS.forEach(function(s,i){
+    var d=new Date(s.ts);
+    var dateKey=d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 ('+days[d.getDay()]+')';
+    if(!groups[dateKey])groups[dateKey]=[];
+    groups[dateKey].push({s:s,idx:i});
+  });
+  var html='';
+  Object.keys(groups).forEach(function(dateKey){
+    var items=groups[dateKey];
+    html+='<div style="padding:10px 14px 0;">';
+    html+='<div style="font-size:12px;font-weight:700;color:var(--mt);margin-bottom:8px;">'+dateKey+'</div>';
+    items.forEach(function(item){
+      var s=item.s;
+      var sesNum=myS.length-item.idx;
+      var sid=s.id||('_'+s.ts);
+      var d=new Date(s.ts);
+      var timeStr=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+      var tc=typeClass(s.type);
+      html+='<div style="background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:13px 14px;margin-bottom:8px;">';
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+      html+='<div style="font-size:14px;font-weight:700;">'+m.name+' 님</div>';
+      html+='<span style="background:var(--acd);color:var(--ac);padding:2px 9px;border-radius:6px;font-size:11px;font-weight:700;">'+timeStr+'</span>';
+      html+='</div>';
+      html+='<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mt);margin-bottom:4px;">';
+      html+='<span>사용된 수강권</span><span style="color:var(--tx);font-weight:600;">'+m.total+'회권</span>';
+      html+='</div>';
+      html+='<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mt);margin-bottom:6px;">';
+      html+='<span>수업 유형</span><span class="type-tag '+tc+'">'+s.type+'</span>';
+      html+='</div>';
+      if(s.note){html+='<div style="font-size:12px;color:var(--dm);border-top:1px solid var(--bd);padding-top:6px;margin-top:4px;">'+s.note+'</div>';}
+      html+='<div style="display:flex;justify-content:space-between;margin-top:8px;">';
+      html+='<span style="font-size:10px;color:var(--mt);">'+sesNum+'회차</span>';
+      html+='<button onclick="deleteSession('+JSON.stringify(m.id)+','+JSON.stringify(sid)+')" style="background:transparent;border:1px solid var(--bd2);color:var(--mt);border-radius:5px;padding:2px 9px;font-size:10px;cursor:pointer;">삭제</button>';
+      html+='</div></div>';
+    });
+    html+='</div>';
+  });
+  el.innerHTML=html;
 }
 
 function renderHistory(){
@@ -1386,13 +1395,6 @@ function renderCalView(){
   renderDaySchedule(calViewSelected);
 }
 
-function selectCalDay(dateStr){
-  calViewSelected=dateStr;
-  const d=new Date(dateStr);
-  calViewYear=d.getFullYear();calViewMonth=d.getMonth();calViewDay=d.getDate();
-  if(calMode==='month'||calMode==='week') renderCalView();
-  else {setCalMode('day');}
-}
 
 function renderDaySchedule(dateStr){
   const scheds=loadSch().filter(s=>s.date===dateStr).sort((a,b)=>a.startTime.localeCompare(b.startTime));
