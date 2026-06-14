@@ -568,6 +568,22 @@ body.light-mode .exp-btn{color:#ffffff !important;}
 </div>
 
 <script>
+function calDayClick(dateStr){
+  if(calViewSelected===dateStr){
+    openScheduleModal(dateStr);
+  } else {
+    calViewSelected=dateStr;
+    var d=new Date(dateStr);
+    calViewYear=d.getFullYear();
+    calViewMonth=d.getMonth();
+    calViewDay=d.getDate();
+    if(typeof calMode!=='undefined'){
+      if(calMode==='month'||calMode==='week') renderCalView();
+      else setCalMode('day');
+    }
+  }
+}
+
 const SK='pilates_members_v1', SK2='pilates_sessions_v1';
 var _sesDelMap={};  // 삭제용 전역 맵
 window._doDelSes=function(key){
@@ -1086,7 +1102,7 @@ function renderCal(){
     const color=isSel?'#1a0a2a':dow===0?'var(--red)':dow===6?'#aabbff':'var(--tx)';
     const bg=isSel?'var(--ac)':isToday?'var(--s3)':'transparent';
     const border=isToday&&!isSel?'1px solid var(--bd2)':'none';
-    html+=`<div onclick="selectCalDay('${dateStr}')" style="text-align:center;padding:5px 2px;border-radius:7px;font-size:13px;cursor:pointer;background:${bg};color:${color};border:${border};font-weight:${isSel?700:400};">${d}</div>`;
+    html+=`<div onclick="calDayClick('${dateStr}')" style="text-align:center;padding:5px 2px;border-radius:7px;font-size:13px;cursor:pointer;background:${bg};color:${color};border:${border};font-weight:${isSel?700:400};">${d}</div>`;
   }
   document.getElementById('cal-days').innerHTML=html;
 }
@@ -1139,7 +1155,7 @@ function renderWeekView(){
     const nameTagsColor=isSel?'#0f1117':'var(--ac)';
     const nameTags=daySchs.slice(0,4).map(s=>`<div style="font-size:9px;background:${nameTagsBg};color:${nameTagsColor};border-radius:3px;padding:1px 3px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.startTime} ${s.memberName}</div>`).join('');
     const more=daySchs.length>4?`<div style="font-size:9px;color:var(--mt);">+${daySchs.length-4}건</div>`:'';
-    html+=`<div onclick="selectCalDay('${dateStr}')" style="padding:5px 3px;border-radius:9px;cursor:pointer;background:${bg};border:${border};min-height:80px;">
+    html+=`<div onclick="calDayClick('${dateStr}')" style="padding:5px 3px;border-radius:9px;cursor:pointer;background:${bg};border:${border};min-height:80px;">
       <div style="font-size:11px;font-weight:700;color:${textColor};text-align:center;margin-bottom:3px;">${days[i]}<br>${d.getDate()}</div>
       ${nameTags}${more}
     </div>`;
@@ -1373,6 +1389,7 @@ let calViewYear=new Date().getFullYear();
 let calViewMonth=new Date().getMonth();
 let calViewSelected=new Date().toISOString().split('T')[0];
 
+
 let calMode='month';
 let calViewDay=new Date().getDate();
 
@@ -1436,7 +1453,7 @@ function renderCalView(){
     const nameTagsColor=isSel?'#0f1117':'var(--ac)';
     const nameTags=daySchs.slice(0,3).map(s=>`<div style="font-size:9px;background:${nameTagsBg};color:${nameTagsColor};border-radius:3px;padding:1px 3px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;text-align:left;">${s.memberName}</div>`).join('');
     const moreTag=daySchs.length>3?`<div style="font-size:9px;color:var(--mt);margin-top:1px;">...</div>`:'';
-    html+=`<div onclick="selectCalDay('${dateStr}')" style="padding:4px 3px;border-radius:9px;cursor:pointer;background:${bg};border:${border};min-height:52px;vertical-align:top;">
+    html+=`<div onclick="calDayClick('${dateStr}')" style="padding:4px 3px;border-radius:9px;cursor:pointer;background:${bg};border:${border};min-height:52px;vertical-align:top;">
       <div style="font-size:12px;color:${textColor};font-weight:${isSel?700:400};text-align:center;margin-bottom:2px;">${d}</div>
       ${nameTags}${moreTag}
     </div>`;
@@ -1896,7 +1913,71 @@ function quickEditMemo(id){
   if(idx>=0){ms[idx].memo=newMemo.trim();saveM(ms);}
   showDetail(id);
 }
-if(checkExpiry()){initTheme();initSample();renderDash();setTimeout(checkBackupReminder,1200);setTimeout(updateNotifyBadge,800);}
+// ── 지난 일정 자동 차감 ──
+function autoCompleteSchedules(){
+  const now=new Date();
+  const schs=loadSch();
+  let changed=false;
+  schs.forEach(function(s){
+    if(s.done)return;
+    if(!s.date)return;
+    const endTimeStr=s.endTime||s.startTime||'23:59';
+    const endDt=new Date(s.date+'T'+endTimeStr+':00');
+    if(endDt>now)return;
+    const ms=loadM();
+    const idx=ms.findIndex(function(x){return x.id===s.memberId;});
+    if(idx>=0&&ms[idx].used<ms[idx].total){
+      ms[idx].used=(ms[idx].used||0)+1;
+      saveM(ms);
+      const ss=loadS();
+      if(!ss[s.memberId])ss[s.memberId]=[];
+      ss[s.memberId].unshift({id:uid(),ts:endDt.getTime(),type:s.type||'기구 필라테스 (개인)',note:'(자동 완료)'});
+      saveS(ss);
+    }
+    s.done=true;
+    changed=true;
+  });
+  if(changed)saveSch(schs);
+}
+
+
+// ── 수업 종료 시간 타이머 자동 차감 ──
+function scheduleAutoComplete(){
+  const now=new Date();
+  const schs=loadSch().filter(function(s){return !s.done;});
+  schs.forEach(function(s){
+    if(!s.date||!s.endTime)return;
+    const endParts=s.endTime.split(':');
+    const endTime=new Date(s.date+'T'+s.endTime+':00');
+    const msUntilEnd=endTime-now;
+    if(msUntilEnd<=0)return; // 이미 지남 (autoCompleteSchedules에서 처리)
+    if(msUntilEnd>24*60*60*1000)return; // 24시간 이상 남은 건 스킵
+    // 종료 시간에 맞춰 타이머 설정
+    setTimeout(function(){
+      const schs2=loadSch();
+      const idx=schs2.findIndex(function(x){return x.id===s.id;});
+      if(idx<0||schs2[idx].done)return;
+      const ms=loadM();
+      const mi=ms.findIndex(function(x){return x.id===s.memberId;});
+      if(mi>=0&&ms[mi].used<ms[mi].total){
+        ms[mi].used=(ms[mi].used||0)+1;
+        saveM(ms);
+        const ss=loadS();
+        if(!ss[s.memberId])ss[s.memberId]=[];
+        ss[s.memberId].unshift({id:uid(),ts:endTime.getTime(),type:s.type||'기구 필라테스 (개인)',note:'(자동 완료)'});
+        saveS(ss);
+      }
+      schs2[idx].done=true;
+      saveSch(schs2);
+      // 화면 갱신
+      if(document.getElementById('view-calendar').classList.contains('active'))renderCalView();
+      renderDash();
+      updateNotifyBadge();
+    }, msUntilEnd);
+  });
+}
+
+if(checkExpiry()){initTheme();initSample();autoCompleteSchedules();scheduleAutoComplete();renderDash();setTimeout(checkBackupReminder,1200);setTimeout(updateNotifyBadge,800);}
 </script>
 <script>
 if('serviceWorker' in navigator){
