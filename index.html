@@ -757,30 +757,47 @@ function showDetail(id){
     </div>
     <div class="det-card">
       <div class="det-card-hdr">
-        <div class="det-card-title">수업 기록 (${myS.length}건)</div>
+        <div class="det-card-title">이용내역 (${myS.length}건)</div>
         <button class="hdr-btn" onclick="openSessionModal('${m.id}')" style="font-size:11px;padding:4px 9px;">+ 추가</button>
       </div>
-      <div style="padding:0 14px;">
-        ${myS.length?myS.map((s,i)=>{
-          const d=new Date(s.ts);
+      <div>
+        ${(()=>{
+          if(!myS.length)return'<div style=\"padding:16px;text-align:center;color:var(--mt);font-size:12px;\">아직 기록이 없습니다</div>';
+          // 날짜별 그룹핑
+          const groups={};
           const days=['일','월','화','수','목','금','토'];
-          const dateStr=`${d.getFullYear()}.${(d.getMonth()+1).toString().padStart(2,'0')}.${d.getDate().toString().padStart(2,'0')} (${days[d.getDay()]})`;
-          const timeStr=`${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-          return`<div style="padding:12px 0;border-bottom:1px solid var(--bd);">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
-              <div style="display:flex;align-items:center;gap:7px;">
-                <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--ac);font-weight:700;">${myS.length-i}회차</span>
-                <span style="font-size:12px;font-weight:600;color:var(--tx);">${dateStr}</span>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:10px;color:var(--mt);font-family:'DM Mono',monospace;">${timeStr}</span>
-                <button onclick="event.stopPropagation();deleteSession('${m.id}','${s.id||'_'+s.ts}')" style="background:var(--redd);border:1px solid var(--red);color:var(--red);border-radius:5px;padding:2px 7px;font-size:10px;cursor:pointer;">삭제</button>
-              </div>
-            </div>
-            <div style="font-size:12px;color:var(--dm);margin-bottom:3px;"><span class="type-tag ${typeClass(s.type)}">${s.type}</span></div>
-            <div style="font-size:13px;line-height:1.6;color:var(--tx);">${s.note||'수업 노트 없음'}</div>
-          </div>`;
-        }).join(''):'<div style="padding:16px 0;text-align:center;color:var(--mt);font-size:12px;">아직 기록이 없습니다</div>'}
+          myS.forEach((s,i)=>{
+            const d=new Date(s.ts);
+            const dateKey=d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 ('+days[d.getDay()]+')';
+            if(!groups[dateKey])groups[dateKey]=[];
+            groups[dateKey].push({s,i});
+          });
+          return Object.entries(groups).map(([dateKey,items])=>{
+            const rows=items.map(({s,i})=>{
+              const d=new Date(s.ts);
+              const timeStr=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+              return'<div style=\"background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:13px 14px;margin-bottom:8px;\">'
+                +'<div style=\"display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;\">'
+                +'<div style=\"font-size:14px;font-weight:700;\">${m.name} 님</div>'
+                +'<span style=\"background:var(--acd);color:var(--ac);padding:2px 9px;border-radius:6px;font-size:11px;font-weight:700;\">'+timeStr+'</span>'
+                +'</div>'
+                +'<div style=\"display:flex;justify-content:space-between;font-size:12px;color:var(--mt);margin-bottom:4px;\">'
+                +'<span>사용된 수강권</span><span style=\"color:var(--tx);font-weight:600;\">${m.total}회권</span>'
+                +'</div>'
+                +'<div style=\"display:flex;justify-content:space-between;font-size:12px;color:var(--mt);margin-bottom:6px;\">'
+                +'<span>수업 유형</span><span class=\"type-tag '+typeClass(s.type)+'\">'+s.type+'</span>'
+                +'</div>'
+                +(s.note?'<div style=\"font-size:12px;color:var(--dm);border-top:1px solid var(--bd);padding-top:6px;margin-top:4px;\">'+s.note+'</div>':'')
+                +'<div style=\"display:flex;justify-content:space-between;margin-top:8px;\">'
+                +'<span style=\"font-size:10px;color:var(--mt);\">'+myS.length-i+'회차</span>'
+                +'<button onclick=\"event.stopPropagation();deleteSession(\'${m.id}\',\''+(s.id||'_'+s.ts)+'\')\" style=\"background:transparent;border:1px solid var(--bd2);color:var(--mt);border-radius:5px;padding:2px 9px;font-size:10px;cursor:pointer;\">예약 취소</button>'
+                +'</div></div>';
+            }).join('');
+            return'<div style=\"padding:10px 14px 0;\">'
+              +'<div style=\"font-size:12px;font-weight:700;color:var(--mt);margin-bottom:8px;\">'+dateKey+'</div>'
+              +rows+'</div>';
+          }).join('');
+        })()}
       </div>
     </div>
   `;
@@ -882,7 +899,14 @@ function openSessionModal(mid){
   if(m.classtype) document.getElementById('ms-type').value=m.classtype.includes('기타')?'기타':m.classtype;
   const now=new Date();
   const days=['일','월','화','수','목','금','토'];
-  document.getElementById('ms-date').value=now.toISOString().split('T')[0];
+  const todayStr=now.toISOString().split('T')[0];
+  document.getElementById('ms-date').value=todayStr;
+  // 날짜 표시 업데이트
+  const tdParts=todayStr.split('-');
+  const tdDays=['일','월','화','수','목','금','토'];
+  const tdObj=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  document.getElementById('ms-date-txt').textContent=tdParts[1]+'월 '+tdParts[2]+'일 ('+tdDays[tdObj.getDay()]+')';
+  document.getElementById('ms-date-display').style.color='var(--tx)';
   document.getElementById('ms-date-txt').textContent=`${now.getMonth()+1}/${now.getDate()} (${days[now.getDay()]})`;
   document.getElementById('ms-date-display').style.color='var(--tx)';
   calYear=now.getFullYear();calMonth=now.getMonth();
@@ -1460,7 +1484,15 @@ function saveSchedule(){
 
 function deleteSchedule(){
   const id=document.getElementById('sch-id').value;if(!id)return;
-  if(!confirm('이 일정을 삭제할까요?'))return;
+  const sch=loadSch().find(x=>x.id===id);
+  const memberId=sch?.memberId;
+  const memberName=sch?.memberName||'회원';
+  if(!confirm('수업을 삭제하시겠습니까?\n삭제할 경우 '+memberName+'님의 잔여 횟수가 1회 복구됩니다.'))return;
+  if(memberId){
+    const ms=loadM();
+    const idx=ms.findIndex(x=>x.id===memberId);
+    if(idx>=0&&ms[idx].used>0){ms[idx].used-=1;saveM(ms);}
+  }
   saveSch(loadSch().filter(x=>x.id!==id));
   closeOv('modal-schedule');
   renderCalView();
