@@ -585,6 +585,10 @@ function calDayClick(dateStr){
 }
 
 const SK='pilates_members_v1', SK2='pilates_sessions_v1';
+function localDateStr(d){
+  d=d||new Date();
+  return d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0')+'-'+d.getDate().toString().padStart(2,'0');
+}
 var _sesDelMap={};  // 삭제용 전역 맵
 window._doDelSes=function(key){
   var info=_sesDelMap[key];
@@ -613,7 +617,7 @@ const saveS=o=>localStorage.setItem(SK2,JSON.stringify(o));
 
 function initSample(){
   if(loadM().length>0) return;
-  const today=new Date().toISOString().split('T')[0];
+  const today=localDateStr();
   saveM([
     {id:'p1',name:'김지수',phone:'010-1111-2222',total:10,used:9,start:'2025-03-01',price:300000,classtype:'기구 필라테스 (개인)',goal:'체형 교정',memo:'허리 디스크 주의',renewHistory:[{date:'2025-03-01',count:10,price:300000}]},
     {id:'p2',name:'이하은',phone:'010-3333-4444',total:20,used:8,start:'2025-04-10',price:560000,classtype:'기구 필라테스 (듀엣)',goal:'산후 회복',memo:'출산 후 3개월',renewHistory:[{date:'2025-04-10',count:20,price:560000}]},
@@ -659,7 +663,7 @@ function gv(id){
     calViewYear=calViewYear||now.getFullYear();
     calViewMonth=calViewMonth===undefined?now.getMonth():calViewMonth;
     calViewDay=calViewDay||now.getDate();
-    calViewSelected=calViewSelected||now.toISOString().split('T')[0];
+    calViewSelected=calViewSelected||localDateStr(now);
     // 요일 헤더 초기 표시
     const hdr=document.querySelector('#view-calendar > div:nth-child(4)');
     if(hdr) hdr.style.display='grid';
@@ -883,7 +887,7 @@ function openAddModal(){
   document.getElementById('mm-total').value='10';
   document.getElementById('mm-price').value='';
   document.getElementById('mm-classtype').value='기구 필라테스 (개인)';
-  document.getElementById('mm-start').value=new Date().toISOString().split('T')[0];
+  document.getElementById('mm-start').value=localDateStr();
   document.getElementById('modal-member').classList.add('open');
 }
 function openEditModal(id){
@@ -920,7 +924,7 @@ function saveMember(){
   if(!total){alert('총 횟수를 입력해주세요.');return;}
   const id=document.getElementById('mm-id').value||uid();
   const ms=loadM(),existing=ms.find(x=>x.id===id);
-  const startDate=document.getElementById('mm-start').value||new Date().toISOString().split('T')[0];
+  const startDate=document.getElementById('mm-start').value||localDateStr();
   const price=parseInt(document.getElementById('mm-price').value)||0;
   const data={id,name,phone:document.getElementById('mm-phone').value.trim(),total,used:existing?existing.used:0,start:startDate,price,classtype:document.getElementById('mm-classtype').value,goal:document.getElementById('mm-goal').value.trim(),memo:document.getElementById('mm-memo').value.trim(),birthday:document.getElementById('mm-birthday').value||'',renewHistory:existing?existing.renewHistory:[{date:startDate,count:total,price}]};
   const idx=ms.findIndex(x=>x.id===id);
@@ -947,7 +951,7 @@ function openSessionModal(mid){
   if(m.classtype) document.getElementById('ms-type').value=m.classtype.includes('기타')?'기타':m.classtype;
   const now=new Date();
   const days=['일','월','화','수','목','금','토'];
-  const todayStr=now.toISOString().split('T')[0];
+  const todayStr=localDateStr(now);
   document.getElementById('ms-date').value=todayStr;
   // 날짜 표시 업데이트
   const tdParts=todayStr.split('-');
@@ -1033,9 +1037,9 @@ function saveRenew(){
   const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
   const price=parseInt(document.getElementById('mr-price').value)||0;
   ms[idx].used=0;ms[idx].total=addCount;ms[idx].price=price;
-  ms[idx].start=new Date().toISOString().split('T')[0];
+  ms[idx].start=localDateStr();
   if(!ms[idx].renewHistory)ms[idx].renewHistory=[];
-  ms[idx].renewHistory.push({date:new Date().toISOString().split('T')[0],count:addCount,price,memo:document.getElementById('mr-memo').value.trim()});
+  ms[idx].renewHistory.push({date:localDateStr(),count:addCount,price,memo:document.getElementById('mr-memo').value.trim()});
   saveM(ms);closeOv('modal-renew');
   if(curDet===mid)showDetail(mid);else renderDash();
   alert(`🌸 ${ms[idx].name} 재등록 완료! ${addCount}회 추가됐습니다.`);
@@ -1387,7 +1391,7 @@ const saveSch=a=>localStorage.setItem(SK3,JSON.stringify(a));
 // ── 캘린더 뷰 ──
 let calViewYear=new Date().getFullYear();
 let calViewMonth=new Date().getMonth();
-let calViewSelected=new Date().toISOString().split('T')[0];
+let calViewSelected=localDateStr();
 
 
 let calMode='month';
@@ -1542,7 +1546,7 @@ function openScheduleModal(date,schedId){
   document.getElementById('sch-id').value='';
   document.getElementById('sch-del-btn').style.display='none';
   document.getElementById('sch-title').textContent='일정 등록';
-  document.getElementById('sch-date').value=date||calViewSelected||new Date().toISOString().split('T')[0];
+  document.getElementById('sch-date').value=date||calViewSelected||localDateStr();
   initSchTime('10:00','10:50');
   document.getElementById('sch-memo').value='';
 
@@ -1612,7 +1616,7 @@ function buildNotifications(){
   const ss=loadS();
   const scheds=loadSch();
   const now=new Date();
-  const today=now.toISOString().split('T')[0];
+  const today=localDateStr(now);
   const days=['일','월','화','수','목','금','토'];
   const items=[];
 
@@ -1712,7 +1716,7 @@ function buildNotifications(){
 
   // 내일 수업 일정
   const tomorrow=new Date(now);tomorrow.setDate(now.getDate()+1);
-  const tomorrowStr=tomorrow.toISOString().split('T')[0];
+  const tomorrowStr=localDateStr(tomorrow);
   const tomorrowScheds=scheds.filter(s=>s.date===tomorrowStr).sort((a,b)=>a.startTime.localeCompare(b.startTime));
   tomorrowScheds.forEach(s=>{
     items.push({
