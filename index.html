@@ -1515,7 +1515,7 @@ function completeScheduleSession(schedId,memberId,type){
   const si=schs.findIndex(x=>x.id===schedId);
   if(si>=0){schs[si].done=true;saveSch(schs);}
   renderCalView();
-  alert('✅ 수업 완료! 잔여 '+(remain(ms[idx])-1)+'회');
+  alert('✅ 수업 완료! 잔여 '+remain(ms[idx])+'회');
 }
 
 function openScheduleModal(date,schedId){
