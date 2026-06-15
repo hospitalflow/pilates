@@ -487,9 +487,10 @@ body.light-mode .exp-btn{color:#ffffff !important;}
   <div class="modal-sub">수업 일정을 입력하세요</div>
   <input type="hidden" id="sch-id">
   <div class="frow">
-    <label class="flabel">회원 선택 *</label>
-    <select class="fselect" id="sch-member"></select>
+    <label class="flabel">회원 선택 (선택사항)</label>
+    <select class="fselect" id="sch-member" onchange="onSchMemberChange()"></select>
   </div>
+  <div class="frow"><label class="flabel">수업명 (회원 미선택 시 직접 입력)</label><input class="finput" id="sch-custom-name" placeholder="예: 체험 수업, 홍길동 체험"></div>
   <div class="frow"><label class="flabel">날짜 *</label><input class="finput" id="sch-date" type="date"></div>
 
   <!-- 드럼롤 시간 피커 -->
@@ -792,7 +793,7 @@ function showDetail(id){
     </div>
     <div class="det-card">
       <div class="det-card-hdr"><div class="det-card-title">기본 정보</div></div>
-      ${[['총 등록 횟수',m.total+'회'],['완료 횟수',m.used+'회'],['잔여 횟수',r+'회'],['수업 유형',m.classtype||'-'],['시작일',m.start||'-'],['금액',fmtPrice(m.price)],['목표',m.goal||'-'],['생일',m.birthday?new Date(m.birthday).toLocaleDateString('ko-KR'):'-']].map(([k,v])=>`<div class="det-row"><span class="det-key">${k}</span><span style="font-weight:500;">${v}</span></div>`).join('')}
+      ${[['총 등록 횟수',m.total+'회'],['완료 횟수',m.used+'회'],['잔여 횟수',r+'회'],['예약 중',loadSch().filter(s=>s.memberId===id&&!s.done).length+'회'],['수업 유형',m.classtype||'-'],['시작일',m.start||'-'],['금액',fmtPrice(m.price)],['목표',m.goal||'-'],['생일',m.birthday?new Date(m.birthday).toLocaleDateString('ko-KR'):'-']].map(([k,v])=>`<div class="det-row"><span class="det-key">${k}</span><span style="font-weight:500;">${v}</span></div>`).join('')}
       <div class="det-row"><span class="det-key">주의사항</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-weight:500;">${m.memo||'-'}</span><button onclick="quickEditMemo('${m.id}')" style="font-size:10px;padding:2px 7px;border-radius:5px;border:1px solid var(--bd2);background:transparent;color:var(--mt);cursor:pointer;">✏️ 수정</button></span></div>
     </div>
     <div class="det-card">
@@ -806,10 +807,13 @@ function showDetail(id){
   (function(){
     var days2=['일','월','화','수','목','금','토'];
     var remain2=m.total-m.used;
+    var schs2=loadSch();
+    var booked=schs2.filter(function(s){return s.memberId===m.id&&!s.done;}).length;
+    var cancelled=schs2.filter(function(s){return s.memberId===m.id&&s.cancelled;}).length;
     var h='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--bd);">';
     h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--ac);">'+remain2+'</div><div style="font-size:10px;color:var(--mt);">잔여</div></div>';
-    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--tx);">'+m.used+'</div><div style="font-size:10px;color:var(--mt);">완료</div></div>';
-    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--mt);">'+m.total+'</div><div style="font-size:10px;color:var(--mt);">전체</div></div>';
+    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--tx);">'+booked+'</div><div style="font-size:10px;color:var(--mt);">예약</div></div>';
+    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--mt);">'+m.used+'</div><div style="font-size:10px;color:var(--mt);">완료</div></div>';
     h+='</div>';
     if(!myS.length){
       h+='<div style="padding:16px;text-align:center;color:var(--mt);font-size:12px;">아직 기록이 없습니다</div>';
@@ -838,7 +842,7 @@ function showDetail(id){
           h+='<div class="det-row"><span class="det-key">수업 유형</span><span class="type-tag '+typeClass(s.type)+'">'+s.type+'</span></div>';
           h+='<div class="det-row"><span class="det-key">수업 후 잔여</span><span style="font-weight:600;color:'+(rem<=3?'var(--red)':'var(--tx)')+';">'+rem+'회</span></div>';
           if(s.note)h+='<div class="det-row"><span class="det-key">노트</span><span style="color:var(--dm);">'+s.note+'</span></div>';
-          h+='<div style="display:flex;justify-content:flex-end;padding:4px 0 8px;"><button class="ses-del" data-key="'+key+'" style="background:var(--redd);border:1px solid var(--red);color:var(--red);border-radius:5px;padding:3px 10px;font-size:10px;cursor:pointer;">🗑 삭제</button></div>';
+          h+='<div style="display:flex;justify-content:flex-end;padding:8px 0;"><button class="ses-del" data-key="'+key+'" style="background:var(--redd);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;position:relative;z-index:10;">🗑 삭제</button></div>';
         });
         h+='</div>';
       });
@@ -849,8 +853,8 @@ function showDetail(id){
       var btn=e.target.closest('.ses-del');
       if(!btn)return;
       e.stopPropagation();
-      var k=btn.getAttribute('data-key');
-      _doDelSes(k);
+      e.preventDefault();
+      _doDelSes(btn.getAttribute('data-key'));
     });
   })();
 }
@@ -1542,7 +1546,9 @@ function completeScheduleSession(schedId,memberId,type){
 function openScheduleModal(date,schedId){
   const ms=loadM();
   const memberOpts=ms.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
-  document.getElementById('sch-member').innerHTML=memberOpts;
+  const emptyOpt='<option value="">-- 회원 없음 (직접 입력) --</option>';
+  document.getElementById('sch-member').innerHTML=emptyOpt+memberOpts;
+  document.getElementById('sch-custom-name').value='';
   document.getElementById('sch-id').value='';
   document.getElementById('sch-del-btn').style.display='none';
   document.getElementById('sch-title').textContent='일정 등록';
@@ -1557,6 +1563,7 @@ function openScheduleModal(date,schedId){
       document.getElementById('sch-title').textContent='일정 수정';
       document.getElementById('sch-del-btn').style.display='block';
       document.getElementById('sch-member').value=s.memberId||'';
+      document.getElementById('sch-custom-name').value=s.customName||'';
       document.getElementById('sch-date').value=s.date||'';
       initSchTime(s.startTime||'10:00',s.endTime||'10:50');
       document.getElementById('sch-type').value=s.type||'기구 필라테스 (개인)';
@@ -1564,6 +1571,20 @@ function openScheduleModal(date,schedId){
     }
   }
   document.getElementById('modal-schedule').classList.add('open');
+}
+
+function onSchMemberChange(){
+  const memberId=document.getElementById('sch-member').value;
+  const customInput=document.getElementById('sch-custom-name');
+  if(memberId){
+    customInput.style.opacity='0.4';
+    customInput.disabled=true;
+    customInput.placeholder='회원 선택됨';
+  } else {
+    customInput.style.opacity='1';
+    customInput.disabled=false;
+    customInput.placeholder='예: 체험 수업, 홍길동 체험';
+  }
 }
 
 function saveSchedule(){
