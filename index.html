@@ -849,43 +849,134 @@ function showDetail(id){
   const typeTag = m.classtype ? '<span class="type-tag '+typeClass(m.classtype)+'">'+m.classtype+'</span>' : '';
 
   document.getElementById('det-content').innerHTML=`
-    <div style="background:var(--s1);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:12px;">
-      <div style="display:flex;align-items:flex-start;gap:13px;margin-bottom:14px;">
-        <div class="det-av">${m.name[0]}</div>
-        <div style="flex:1;">
-          <div style="font-size:21px;font-weight:700;margin-bottom:3px;">${m.name}</div>
-          <div style="font-size:12px;color:var(--mt);margin-bottom:6px;">${m.phone||''}${m.goal?' · '+m.goal:''}</div>
-          <div style="display:flex;gap:5px;flex-wrap:wrap;">
-            <span class="mc-badge ${st.cls}">${st.txt}</span>
-            ${typeTag}
-          </div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:38px;font-weight:700;font-family:'DM Mono',monospace;color:${c}">${r}</div>
-          <div style="font-size:11px;color:var(--mt);">회 남음</div>
-        </div>
-      </div>
-      <div class="prog-bar" style="height:6px;margin-bottom:12px;"><div class="prog-fill" style="width:${pct(m)}%;background:${c};height:6px;"></div></div>
-      <div style="display:flex;gap:7px;flex-wrap:wrap;">
-        <button class="mc-action primary" onclick="openSessionModal('${m.id}')">✅ 수업 완료 (-1회)</button>
-        <button class="mc-action" onclick="openRenewModal('${m.id}')">🎫 수강권 추가</button>
-        <button class="mc-action" onclick="openEditModal('${m.id}')">✏️ 수정</button>
-        ${phoneBtn}
-        ${smsBtn}
-      </div>
-    </div>
-    <!-- 수강권 카드 -->
-    <div id="ticket-card-area-${m.id}"></div>
+    <!-- 상단 프로필 히어로 -->
+    <div style="
+      background:linear-gradient(160deg,var(--s2) 0%,var(--s1) 100%);
+      border:1px solid var(--bd2);
+      border-radius:24px;
+      padding:22px 20px 18px;
+      margin-bottom:14px;
+      position:relative;
+      overflow:hidden;
+    ">
+      <!-- 배경 원형 장식 -->
+      <div style="position:absolute;top:-60px;right:-60px;width:200px;height:200px;border-radius:50%;background:${c};opacity:0.06;pointer-events:none;"></div>
+      <div style="position:absolute;bottom:-80px;left:-40px;width:220px;height:220px;border-radius:50%;background:${c};opacity:0.04;pointer-events:none;"></div>
 
-    <div class="det-card">
-      <div class="det-card-hdr"><div class="det-card-title">기본 정보</div></div>
-      ${[['총 등록 횟수',m.total+'회'],['완료 횟수',m.used+'회'],['잔여 횟수',r+'회'],['예약 중',loadSch().filter(s=>s.memberId===id&&!s.done).length+'회'],['수업 유형',m.classtype||'-'],['시작일',m.start||'-'],['금액',fmtPrice(m.price)],['목표',m.goal||'-'],['생일',m.birthday?new Date(m.birthday).toLocaleDateString('ko-KR'):'-']].map(([k,v])=>`<div class="det-row"><span class="det-key">${k}</span><span style="font-weight:500;">${v}</span></div>`).join('')}
-      <div class="det-row"><span class="det-key">주의사항</span><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-weight:500;">${m.memo||'-'}</span><button onclick="quickEditMemo('${m.id}')" style="font-size:10px;padding:2px 7px;border-radius:5px;border:1px solid var(--bd2);background:transparent;color:var(--mt);cursor:pointer;">✏️ 수정</button></span></div>
+      <!-- 아바타 + 이름 -->
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;position:relative;">
+        <div style="
+          width:58px;height:58px;border-radius:50%;
+          background:${c}22;
+          border:2px solid ${c};
+          display:flex;align-items:center;justify-content:center;
+          font-size:24px;font-weight:800;color:${c};
+          flex-shrink:0;
+        ">${m.name[0]}</div>
+        <div style="flex:1;">
+          <div style="font-size:23px;font-weight:800;letter-spacing:-0.5px;margin-bottom:3px;">${m.name}</div>
+          <div style="font-size:12px;color:var(--mt);">${m.phone||''}${m.goal?' · '+m.goal:''}</div>
+        </div>
+        <div style="text-align:right;position:relative;">
+          <div style="font-size:48px;font-weight:800;font-family:'DM Mono',monospace;color:${c};line-height:1;">${r}</div>
+          <div style="font-size:10px;color:var(--mt);letter-spacing:1px;text-transform:uppercase;">회 남음</div>
+        </div>
+      </div>
+
+      <!-- 진행 바 -->
+      <div style="margin-bottom:18px;position:relative;">
+        <div style="
+          height:6px;border-radius:99px;
+          background:var(--bd2);
+          overflow:hidden;
+        ">
+          <div style="
+            height:100%;
+            width:${pct(m)}%;
+            background:linear-gradient(90deg,${c},${c}aa);
+            border-radius:99px;
+            transition:width .6s ease;
+          "></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:5px;">
+          <span style="font-size:10px;color:var(--mt);">${m.used}회 완료</span>
+          <span style="font-size:10px;color:var(--mt);">${pct(m)}%</span>
+        </div>
+      </div>
+
+      <!-- 상태 배지 -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">
+        <span class="mc-badge ${st.cls}">${st.txt}</span>
+        ${typeTag}
+      </div>
+
+      <!-- 액션 버튼 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button onclick="openSessionModal('${m.id}')" style="
+          padding:11px;border-radius:12px;
+          background:${c};border:none;
+          color:#0a0a0a;font-size:13px;font-weight:700;
+          cursor:pointer;letter-spacing:-.2px;
+        ">✅ 수업 완료</button>
+        <button onclick="openRenewModal('${m.id}')" style="
+          padding:11px;border-radius:12px;
+          background:transparent;border:1.5px solid var(--bd2);
+          color:var(--tx);font-size:13px;font-weight:600;
+          cursor:pointer;
+        ">🎫 수강권 추가</button>
+        ${m.phone?`<button onclick="callMember('${m.phone}')" style="padding:10px;border-radius:12px;background:transparent;border:1.5px solid var(--bd2);color:var(--mt);font-size:13px;cursor:pointer;">📞 전화</button>`:''}
+        <button onclick="openEditModal('${m.id}')" style="
+          padding:10px;border-radius:12px;
+          background:transparent;border:1.5px solid var(--bd2);
+          color:var(--mt);font-size:13px;cursor:pointer;
+        ">✏️ 수정</button>
+        ${smsBtn?`${smsBtn}`:''}
+      </div>
     </div>
-    <div class="det-card">
-      <div class="det-card-hdr">
-        <div class="det-card-title">이용내역 (${myS.length}건)</div>
-        <button class="hdr-btn" onclick="openSessionModal('${m.id}')" style="font-size:11px;padding:4px 9px;">+ 추가</button>
+
+    <!-- 수강권 카드 -->
+    <div id="ticket-card-area-${m.id}" style="margin-bottom:14px;"></div>
+
+    <!-- 기본 정보 -->
+    <div style="
+      background:var(--s1);border:1px solid var(--bd);
+      border-radius:18px;overflow:hidden;margin-bottom:14px;
+    ">
+      <div style="
+        padding:12px 18px;
+        border-bottom:1px solid var(--bd);
+        display:flex;align-items:center;justify-content:space-between;
+      ">
+        <div style="font-size:11px;font-weight:700;color:var(--mt);letter-spacing:1px;text-transform:uppercase;">기본 정보</div>
+        <button onclick="openEditModal('${m.id}')" style="font-size:11px;padding:3px 9px;border-radius:6px;border:1px solid var(--bd2);background:transparent;color:var(--mt);cursor:pointer;">수정</button>
+      </div>
+      ${[
+        ['수업 유형', m.classtype||'-'],
+        ['시작일', m.start||'-'],
+        ['금액', fmtPrice(m.price)],
+        ['목표', m.goal||'-'],
+        ['생일', m.birthday?new Date(m.birthday).toLocaleDateString('ko-KR'):'-'],
+        ['주의사항', m.memo||'-'],
+      ].map(([k,v])=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 18px;border-bottom:1px solid var(--bd);">
+          <span style="font-size:12px;color:var(--mt);">${k}</span>
+          <span style="font-size:13px;font-weight:600;max-width:60%;text-align:right;word-break:keep-all;">${v}</span>
+        </div>
+      `).join('')}
+    </div>
+
+    <!-- 이용내역 -->
+    <div style="
+      background:var(--s1);border:1px solid var(--bd);
+      border-radius:18px;overflow:hidden;margin-bottom:14px;
+    ">
+      <div style="
+        padding:12px 18px;
+        border-bottom:1px solid var(--bd);
+        display:flex;align-items:center;justify-content:space-between;
+      ">
+        <div style="font-size:11px;font-weight:700;color:var(--mt);letter-spacing:1px;text-transform:uppercase;">이용내역 (${myS.length}건)</div>
+        <button onclick="openSessionModal('${m.id}')" style="font-size:11px;padding:3px 9px;border-radius:6px;border:1px solid var(--bd2);background:transparent;color:var(--mt);cursor:pointer;">+ 추가</button>
       </div>
       <div id="ses-list-area"></div>
     </div>
