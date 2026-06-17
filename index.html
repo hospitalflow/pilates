@@ -901,7 +901,7 @@ window._doDelSes=function(key){
   if(ss[info.mid].length<before){
     var ms=loadM();
     var idx=ms.findIndex(function(x){return x.id===info.mid;});
-    if(idx>=0&&ms[idx].used>0){ms[idx].used--;saveM(ms);}
+    if(idx>=0){migrateRenewHistory(ms[idx]);restoreTicket(ms[idx]);saveM(ms);}
   }
   if(curDet===info.mid)showDetail(info.mid);else renderDash();
 };
@@ -1530,7 +1530,7 @@ function deleteSession(mid,sid){
     // 실제로 삭제됐을 때만 횟수 복원
     var ms=loadM();
     var idx=ms.findIndex(function(x){return x.id===mid;});
-    if(idx>=0&&ms[idx].used>0){ms[idx].used--;saveM(ms);}
+    if(idx>=0){migrateRenewHistory(ms[idx]);restoreTicket(ms[idx]);saveM(ms);}
   }
   if(curDet===mid)showDetail(mid);else renderDash();
 }
