@@ -133,17 +133,18 @@ body.light-mode .tab-bar{background:rgba(255,255,255,0.96);}
 .view.active{display:block;}
 
 /* ── 통계 카드 행 ── */
-.sc-row{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px;}
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;}
 .sc{
   background:var(--s1);
   border:1px solid var(--bd);
   border-radius:var(--radius);
-  padding:14px 16px;
+  padding:12px 10px;
   box-shadow:var(--shadow-sm);
+  min-width:0;
 }
-.sc-label{font-size:11px;color:var(--mt);margin-bottom:6px;letter-spacing:.3px;}
-.sc-val{font-size:26px;font-weight:700;font-family:'DM Mono',monospace;line-height:1;}
-.sc-sub{font-size:10px;color:var(--mt);margin-top:3px;}
+.sc-label{font-size:10px;color:var(--mt);margin-bottom:5px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sc-val{font-size:21px;font-weight:700;font-family:'DM Mono',monospace;line-height:1;}
+.sc-sub{font-size:9px;color:var(--mt);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
 /* ── 검색 ── */
 .search-wrap{position:relative;margin-bottom:12px;}
@@ -377,7 +378,7 @@ body.light-mode .tab-bar{background:rgba(255,255,255,0.96);}
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 @media(max-width:360px){
-  .sc-row{grid-template-columns:1fr 1fr;}
+  .stat-row{grid-template-columns:repeat(3,1fr);}
   .fgrid2,.fgrid3{grid-template-columns:1fr;}
 }
 </style>
@@ -415,8 +416,26 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 
 <div id="scroll-wrap" style="flex:1;overflow-y:auto;">
 
+  <!-- 홈 -->
+  <div class="view active" id="view-home">
+    <div style="margin-bottom:14px;">
+      <div style="font-family:'Noto Serif KR',serif;font-size:20px;color:var(--tx);margin-bottom:2px;font-weight:700;">홈</div>
+      <div style="font-size:12px;color:var(--mt);">오늘 한눈에 보기</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;">
+      <button onclick="openAddModal()" style="flex:1;padding:12px;border-radius:var(--radius);background:var(--acd);border:1px solid var(--ac);color:var(--ac);font-size:13px;font-weight:700;cursor:pointer;">➕ 회원 등록</button>
+      <button onclick="openScheduleModal(localDateStr())" style="flex:1;padding:12px;border-radius:var(--radius);background:var(--s1);border:1px solid var(--bd);color:var(--tx);font-size:13px;font-weight:700;cursor:pointer;">📅 일정 등록</button>
+    </div>
+    <div id="home-today-sched"></div>
+    <div id="home-revenue"></div>
+    <div id="home-birthday"></div>
+    <div id="home-newreg"></div>
+    <div id="home-absent"></div>
+    <div id="home-recent-feed"></div>
+  </div>
+
   <!-- 대시보드 -->
-  <div class="view active" id="view-dash">
+  <div class="view" id="view-dash">
     <div class="stat-row" id="stat-row"></div>
     <div id="dash-alerts"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
@@ -513,7 +532,10 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 
 <!-- 하단 탭 -->
 <div class="tab-bar">
-  <div class="tab active" id="tab-dash" onclick="gv('dash')">
+  <div class="tab active" id="tab-home" onclick="gv('home')">
+    <div class="tab-ico">🏠</div><div>홈</div>
+  </div>
+  <div class="tab" id="tab-dash" onclick="gv('dash')">
     <div class="tab-ico">🤸</div><div>회원</div>
   </div>
   <div class="tab" id="tab-calendar" onclick="gv('calendar')">
@@ -948,8 +970,9 @@ let curDet='';
 function gv(id){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+id).classList.add('active');
-  ['dash','calendar','history','stats','notify'].forEach(k=>{const t=document.getElementById('tab-'+k);if(t)t.classList.toggle('active',k===id||(id==='detail'&&k==='dash'));});
+  ['home','dash','calendar','history','stats','notify'].forEach(k=>{const t=document.getElementById('tab-'+k);if(t)t.classList.toggle('active',k===id||(id==='detail'&&k==='dash'));});
   document.getElementById('scroll-wrap').scrollTop=0;
+  if(id==='home')renderHome();
   if(id==='dash')renderDash();
   if(id==='history')renderHistory();
   if(id==='stats')renderStats();
@@ -982,7 +1005,7 @@ function renderDash(){
   const active=ms.filter(m=>remain(m)>0).length;
   document.getElementById('stat-row').innerHTML=`
     <div class="sc"><div class="sc-label">전체 회원</div><div class="sc-val" style="color:var(--ac)">${ms.length}</div><div class="sc-sub">등록</div></div>
-    <div class="sc"><div class="sc-label">⚠ 수강권 소진</div><div class="sc-val" style="color:var(--red)">${urgent}</div><div class="sc-sub">잔여 3회 이하</div></div>
+    <div class="sc"><div class="sc-label">⚠ 소진임박</div><div class="sc-val" style="color:var(--red)">${urgent}</div><div class="sc-sub">3회 이하</div></div>
     <div class="sc"><div class="sc-label">✅ 진행중</div><div class="sc-val" style="color:var(--grn)">${active}</div><div class="sc-sub">잔여 있음</div></div>
   `;
   let alerts='';
@@ -995,6 +1018,160 @@ function renderDash(){
 });
   document.getElementById('dash-alerts').innerHTML=alerts;
   renderDashList();
+}
+
+function renderHome(){
+  renderTodaySched();
+  renderMonthRevenue();
+  renderWeekBirthday();
+  renderNewRegistrations();
+  renderAbsentList();
+  renderRecentFeed();
+}
+
+function renderMonthRevenue(){
+  const el=document.getElementById('home-revenue');
+  if(!el)return;
+  const ms=loadM();
+  const now=new Date();
+  const thisMonth=now.getFullYear()+'-'+(now.getMonth()+1).toString().padStart(2,'0');
+  const monthRevenue=ms.reduce((s,m)=>(m.renewHistory||[]).filter(h=>h.date&&h.date.startsWith(thisMonth)).reduce((a,h)=>a+(h.price||0),s),0);
+  el.innerHTML=`<div class="det-card" onclick="gv('stats')" style="cursor:pointer;">
+    <div class="det-card-hdr"><div class="det-card-title">💰 이번 달 매출</div><div style="font-size:11px;color:var(--mt);">통계 보기 →</div></div>
+    <div style="padding:14px 16px;">
+      <div style="font-size:24px;font-weight:700;font-family:'DM Mono',monospace;color:var(--ac);">${monthRevenue.toLocaleString('ko-KR')}<span style="font-size:13px;color:var(--mt);font-weight:500;margin-left:3px;">원</span></div>
+    </div>
+  </div>`;
+}
+
+function renderNewRegistrations(){
+  const el=document.getElementById('home-newreg');
+  if(!el)return;
+  const ms=loadM();
+  const now=new Date();
+  const thisMonth=now.getFullYear()+'-'+(now.getMonth()+1).toString().padStart(2,'0');
+  const list=ms.filter(m=>(m.start||'').startsWith(thisMonth));
+  if(!list.length){el.innerHTML='';return;}
+  const rows=list.map(m=>`<div onclick="showDetail('${m.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd);cursor:pointer;">
+      <div style="font-size:13px;font-weight:600;">🆕 ${m.name}</div>
+      <div style="font-size:11px;color:var(--mt);">${m.start}</div>
+    </div>`).join('');
+  el.innerHTML=`<div class="det-card">
+    <div class="det-card-hdr"><div class="det-card-title">🆕 이번 달 신규 등록 (${list.length})</div></div>
+    <div style="padding:0 16px;">${rows}</div>
+  </div>`;
+}
+
+function renderAbsentList(){
+  const el=document.getElementById('home-absent');
+  if(!el)return;
+  const ms=loadM().filter(m=>remain(m)>0);
+  const list=ms.map(m=>{
+    const lastTs=lastSessionDate(m.id);
+    const diff=lastTs?Math.floor((Date.now()-lastTs)/86400000):null;
+    return{m,diff};
+  }).filter(x=>x.diff!==null&&x.diff>=14).sort((a,b)=>b.diff-a.diff);
+  if(!list.length){el.innerHTML='';return;}
+  const rows=list.slice(0,5).map(x=>`<div onclick="showDetail('${x.m.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd);cursor:pointer;">
+      <div style="font-size:13px;font-weight:600;">${x.m.name}</div>
+      <div style="font-size:11px;color:var(--mt);">${x.diff}일째 미출석</div>
+    </div>`).join('');
+  el.innerHTML=`<div class="det-card">
+    <div class="det-card-hdr"><div class="det-card-title">🕐 장기 미출석 (${list.length})</div></div>
+    <div style="padding:0 16px;">${rows}</div>
+  </div>`;
+}
+
+function renderTodaySched(){
+  const el=document.getElementById('home-today-sched');
+  if(!el)return;
+  const today=localDateStr();
+  const ms=loadM();
+  const scheds=loadSch().filter(s=>s.date===today).sort((a,b)=>a.startTime.localeCompare(b.startTime));
+  if(!scheds.length){el.innerHTML='';return;}
+  const rows=scheds.map(s=>{
+    const mem=ms.find(x=>x.id===s.memberId);
+    const r=mem?remain(mem):null;
+    return`<div onclick="gv('calendar')" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd);cursor:pointer;">
+      <div style="background:${s.done?'var(--grnd)':'var(--acd)'};border-radius:8px;padding:5px 8px;text-align:center;min-width:46px;flex-shrink:0;">
+        <div style="font-size:11px;font-weight:700;color:${s.done?'var(--grn)':'var(--ac)'};">${s.startTime}</div>
+      </div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">${s.memberName}${s.done?' <span style="font-size:10px;color:var(--grn);">✓완료</span>':''}</div>
+        <div style="font-size:11px;color:var(--mt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.type||''}${r!==null?' · 잔여 '+r+'회':''}</div>
+      </div>
+    </div>`;
+  }).join('');
+  el.innerHTML=`<div class="det-card">
+    <div class="det-card-hdr"><div class="det-card-title">📅 오늘 수업 예정 (${scheds.length})</div></div>
+    <div style="padding:0 16px;">${rows}</div>
+  </div>`;
+}
+
+function renderWeekBirthday(){
+  const el=document.getElementById('home-birthday');
+  if(!el)return;
+  const ms=loadM();
+  const now=new Date();now.setHours(0,0,0,0);
+  const weekEnd=new Date(now);weekEnd.setDate(weekEnd.getDate()+6);
+  const list=ms.filter(m=>m.birthday).map(m=>{
+    const b=new Date(m.birthday);
+    let d=new Date(now.getFullYear(),b.getMonth(),b.getDate());
+    if(d<now)d=new Date(now.getFullYear()+1,b.getMonth(),b.getDate());
+    return{m,date:d};
+  }).filter(x=>x.date>=now&&x.date<=weekEnd).sort((a,b)=>a.date-b.date);
+  if(!list.length){el.innerHTML='';return;}
+  const rows=list.map(x=>{
+    const diff=Math.round((x.date-now)/86400000);
+    const label=diff===0?'오늘 🎉':diff===1?'내일':diff+'일 후';
+    return`<div onclick="showDetail('${x.m.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd);cursor:pointer;">
+      <div style="font-size:13px;font-weight:600;">🎂 ${x.m.name}</div>
+      <div style="font-size:11px;color:var(--pnk);font-weight:700;">${label}</div>
+    </div>`;
+  }).join('');
+  el.innerHTML=`<div class="det-card">
+    <div class="det-card-hdr"><div class="det-card-title">🎂 이번 주 생일 (${list.length})</div></div>
+    <div style="padding:0 16px;">${rows}</div>
+  </div>`;
+}
+
+function relTime(ts){
+  const diff=Date.now()-ts;
+  const mi=Math.floor(diff/60000),h=Math.floor(diff/3600000),d=Math.floor(diff/86400000);
+  if(diff<0||mi<1)return'방금';
+  if(mi<60)return mi+'분 전';
+  if(h<24)return h+'시간 전';
+  if(d<7)return d+'일 전';
+  return new Date(ts).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'});
+}
+
+function renderRecentFeed(){
+  const el=document.getElementById('home-recent-feed');
+  if(!el)return;
+  const ms=loadM();
+  const ss=loadS();
+  const items=[];
+  ms.forEach(m=>{
+    (ss[m.id]||[]).forEach(s=>{
+      items.push({ts:s.ts,ico:'✅',text:`${m.name}님 ${s.type||'수업'} 완료`});
+    });
+    migrateRenewHistory(m);
+    (m.renewHistory||[]).forEach(h=>{
+      items.push({ts:new Date(h.date).getTime()||0,ico:'💳',text:`${m.name}님 수강권 ${h.count}회 등록/갱신`});
+    });
+  });
+  items.sort((a,b)=>b.ts-a.ts);
+  const top=items.slice(0,5);
+  if(!top.length){el.innerHTML='';return;}
+  const rows=top.map(it=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bd);">
+      <div style="font-size:14px;flex-shrink:0;">${it.ico}</div>
+      <div style="flex:1;font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.text}</div>
+      <div style="font-size:10px;color:var(--mt);flex-shrink:0;">${relTime(it.ts)}</div>
+    </div>`).join('');
+  el.innerHTML=`<div class="det-card">
+    <div class="det-card-hdr"><div class="det-card-title">🕓 최근 활동</div></div>
+    <div style="padding:0 16px;">${rows}</div>
+  </div>`;
 }
 
 function renderDashList(){
@@ -2559,7 +2736,7 @@ function scheduleAutoComplete(){
   });
 }
 
-if(checkExpiry()){initTheme();initSample();autoCompleteSchedules();scheduleAutoComplete();renderDash();setTimeout(checkBackupReminder,1200);setTimeout(updateNotifyBadge,800);}
+if(checkExpiry()){initTheme();initSample();autoCompleteSchedules();scheduleAutoComplete();renderHome();renderDash();setTimeout(checkBackupReminder,1200);setTimeout(updateNotifyBadge,800);}
 </script>
 <script>
 if('serviceWorker' in navigator){
