@@ -433,6 +433,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
     </div>
   </div>
   <div class="hdr-right">
+    <span id="sync-status" onclick="syncFromCloud(false)" style="font-size:15px;cursor:pointer;padding:4px;" title="동기화 상태 (클릭하여 새로고침)">☁️</span>
     <button class="hdr-btn" id="theme-toggle-btn" onclick="toggleTheme()" style="font-size:16px;padding:7px 10px;" title="다크/라이트 전환">☀️</button>
     <button class="hdr-btn" onclick="doBackup()">💾 백업</button>
     <button class="hdr-btn" onclick="doRestore()">📂 복원</button>
@@ -929,6 +930,118 @@ function schedDrop(e,targetDate){
 
 const SK='pilates_members_v1', SK2='pilates_sessions_v1';
 
+// ── Supabase 클라우드 동기화 ──
+const SB_URL='https://utbmxyegsxaapccxqjvk.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0Ym14eWVnc3hhYXBjY3hxanZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMjE4MTAsImV4cCI6MjA5NzY5NzgxMH0.cvnqqC1ehtWjEuXG2je7CRpiDOVc7XUB-Ljz0wSa-Ck';
+const SB_TABLE='pilates_data';
+let _syncTimer=null, _syncing=false;
+
+function setSyncStatus(state){
+  const el=document.getElementById('sync-status');
+  if(!el)return;
+  if(state==='syncing'){el.textContent='🔄';el.title='동기화 중...';}
+  else if(state==='synced'){el.textContent='☁️';el.title='클라우드 동기화됨';}
+  else if(state==='offline'){el.textContent='⚠️';el.title='오프라인 - 이 기기에만 저장 중';}
+  else if(state==='error'){el.textContent='❌';el.title='동기화 오류';}
+}
+
+async function sbPush(key,value){
+  try{
+    const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=key',{
+      method:'POST',
+      headers:{
+        'apikey':SB_KEY,
+        'Authorization':'Bearer '+SB_KEY,
+        'Content-Type':'application/json',
+        'Prefer':'resolution=merge-duplicates,return=minimal'
+      },
+      body:JSON.stringify({key:key,data:value,updated_at:new Date().toISOString()})
+    });
+    setSyncStatus(res.ok?'synced':'error');
+    return res.ok;
+  }catch(e){
+    setSyncStatus('offline');
+    return false;
+  }
+}
+
+async function sbPull(key){
+  try{
+    const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?key=eq.'+key+'&select=data,updated_at',{
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
+    });
+    if(!res.ok)return null;
+    const arr=await res.json();
+    return arr&&arr[0]?arr[0]:null;
+  }catch(e){
+    return null;
+  }
+}
+
+function localUpdatedKey(k){return k+'_synced_at';}
+
+async function syncFromCloud(silent){
+  if(_syncing)return;
+  _syncing=true;
+  if(!silent)setSyncStatus('syncing');
+  try{
+    const [mem,ses,sch]=await Promise.all([sbPull('members'),sbPull('sessions'),sbPull('schedules')]);
+    let changed=false;
+    if(mem){
+      const lu=localStorage.getItem(localUpdatedKey(SK))||'';
+      if(mem.updated_at>lu){
+        localStorage.setItem(SK,JSON.stringify(mem.data));
+        localStorage.setItem(localUpdatedKey(SK),mem.updated_at);
+        changed=true;
+      }
+    }
+    if(ses){
+      const lu=localStorage.getItem(localUpdatedKey(SK2))||'';
+      if(ses.updated_at>lu){
+        localStorage.setItem(SK2,JSON.stringify(ses.data));
+        localStorage.setItem(localUpdatedKey(SK2),ses.updated_at);
+        changed=true;
+      }
+    }
+    if(sch){
+      const lu=localStorage.getItem(localUpdatedKey(SK3))||'';
+      if(sch.updated_at>lu){
+        localStorage.setItem(SK3,JSON.stringify(sch.data));
+        localStorage.setItem(localUpdatedKey(SK3),sch.updated_at);
+        changed=true;
+      }
+    }
+    setSyncStatus(mem||ses||sch?'synced':'offline');
+    if(changed&&typeof refreshCurrentView==='function')refreshCurrentView();
+    // 클라우드에 아직 데이터가 없으면(첫 실행) 현재 로컬 데이터로 초기화
+    if(!mem)sbPush('members',loadM());
+    if(!ses)sbPush('sessions',loadS());
+    if(!sch)sbPush('schedules',loadSch());
+  }catch(e){
+    setSyncStatus('offline');
+  }
+  _syncing=false;
+}
+
+function refreshCurrentView(){
+  const av=document.querySelector('.view.active')?.id?.replace('view-','');
+  if(av==='home')renderHome();
+  else if(av==='dash')renderDash();
+  else if(av==='detail'&&curDet)showDetail(curDet);
+  else if(av==='calendar'&&typeof renderCalView==='function')renderCalView();
+  else if(av==='notify'&&typeof renderNotify==='function')renderNotify();
+  else if(av==='history'&&typeof renderHistory==='function')renderHistory();
+  else if(av==='stats'&&typeof renderStats==='function')renderStats();
+}
+
+function startPeriodicSync(){
+  if(_syncTimer)clearInterval(_syncTimer);
+  _syncTimer=setInterval(()=>syncFromCloud(true),20000);
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible')syncFromCloud(true);
+  });
+}
+
 // ── 수강권 관리 헬퍼 ──
 function migrateRenewHistory(m){
   if(!m.renewHistory||!m.renewHistory.length){
@@ -1070,9 +1183,9 @@ window._doDelSes=function(key){
 };
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 const loadM=()=>{try{return JSON.parse(localStorage.getItem(SK))||[];}catch{return[];}};
-const saveM=a=>localStorage.setItem(SK,JSON.stringify(a));
+const saveM=a=>{localStorage.setItem(SK,JSON.stringify(a));const t=new Date().toISOString();localStorage.setItem(localUpdatedKey(SK),t);sbPush('members',a);};
 const loadS=()=>{try{return JSON.parse(localStorage.getItem(SK2))||{};}catch{return{};}};
-const saveS=o=>localStorage.setItem(SK2,JSON.stringify(o));
+const saveS=o=>{localStorage.setItem(SK2,JSON.stringify(o));const t=new Date().toISOString();localStorage.setItem(localUpdatedKey(SK2),t);sbPush('sessions',o);};
 
 function initSample(){
   if(loadM().length>0) return;
@@ -2315,7 +2428,7 @@ function initSchTime(start,end){
 // ── 일정 데이터 ──
 const SK3='pilates_schedules_v1';
 const loadSch=()=>{try{return JSON.parse(localStorage.getItem(SK3))||[];}catch{return[];}};
-const saveSch=a=>localStorage.setItem(SK3,JSON.stringify(a));
+const saveSch=a=>{localStorage.setItem(SK3,JSON.stringify(a));const t=new Date().toISOString();localStorage.setItem(localUpdatedKey(SK3),t);sbPush('schedules',a);};
 
 // ── 캘린더 뷰 ──
 let calViewYear=new Date().getFullYear();
@@ -2959,7 +3072,20 @@ function scheduleAutoComplete(){
   });
 }
 
-if(checkExpiry()){initTheme();initSample();autoCompleteSchedules();scheduleAutoComplete();renderHome();renderDash();setTimeout(checkBackupReminder,1200);setTimeout(updateNotifyBadge,800);}
+async function initApp(){
+  if(!checkExpiry())return;
+  initTheme();
+  await syncFromCloud(false);   // 클라우드 데이터 먼저 받아오기 (샘플 생성/렌더링보다 우선)
+  initSample();
+  autoCompleteSchedules();
+  scheduleAutoComplete();
+  renderHome();
+  renderDash();
+  setTimeout(checkBackupReminder,1200);
+  setTimeout(updateNotifyBadge,800);
+  startPeriodicSync();
+}
+initApp();
 </script>
 <script>
 if('serviceWorker' in navigator){
