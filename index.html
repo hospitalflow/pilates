@@ -421,6 +421,20 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="exp-contact">전화: <a id="exp-contact-link" href="#">010-0000-0000</a></div>
 </div>
 
+<!-- 로그인 화면 -->
+<div class="exp-screen" id="login-screen" style="display:none;">
+  <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--ac);margin-bottom:8px;">Pilates Studio</div>
+  <div style="font-size:40px;margin-bottom:10px;">🔐</div>
+  <div style="font-size:18px;font-weight:800;color:var(--tx);margin-bottom:6px;">로그인이 필요합니다</div>
+  <div style="font-size:13px;color:var(--mt);margin-bottom:26px;line-height:1.5;">회원 정보 보호를 위해<br>로그인 후 이용해주세요</div>
+  <div style="width:100%;max-width:300px;display:flex;flex-direction:column;gap:10px;">
+    <input id="login-email" type="email" placeholder="이메일" class="finput" style="text-align:center;" autocomplete="username">
+    <input id="login-pw" type="password" placeholder="비밀번호" class="finput" style="text-align:center;" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <div id="login-error" style="color:var(--red);font-size:12px;min-height:16px;font-weight:600;"></div>
+    <button onclick="doLogin()" id="login-btn" style="background:var(--ac);border:none;color:#0f1117;font-weight:800;padding:13px;border-radius:10px;font-size:14px;cursor:pointer;">로그인</button>
+  </div>
+</div>
+
 <div class="app">
 
 <!-- 헤더 -->
@@ -434,6 +448,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   </div>
   <div class="hdr-right">
     <span id="sync-status" onclick="syncFromCloud(false)" style="font-size:15px;cursor:pointer;padding:4px;" title="동기화 상태 (클릭하여 새로고침)">☁️</span>
+    <button class="hdr-btn" onclick="doLogout()" title="로그아웃" style="font-size:14px;padding:7px 9px;">🚪</button>
     <button class="hdr-btn" id="theme-toggle-btn" onclick="toggleTheme()" style="font-size:16px;padding:7px 10px;" title="다크/라이트 전환">☀️</button>
     <button class="hdr-btn" onclick="doBackup()">💾 백업</button>
     <button class="hdr-btn" onclick="doRestore()">📂 복원</button>
@@ -945,13 +960,76 @@ function setSyncStatus(state){
   else if(state==='error'){el.textContent='❌';el.title='동기화 오류';}
 }
 
+// ── 로그인 / 세션 관리 ──
+const SB_AUTH_KEY='pilates_sb_session_v1';
+function getSession(){try{return JSON.parse(localStorage.getItem(SB_AUTH_KEY));}catch{return null;}}
+function saveSession(s){localStorage.setItem(SB_AUTH_KEY,JSON.stringify(s));}
+function clearSession(){localStorage.removeItem(SB_AUTH_KEY);}
+
+async function doLogin(){
+  const email=document.getElementById('login-email').value.trim();
+  const pw=document.getElementById('login-pw').value;
+  const errEl=document.getElementById('login-error');
+  const btn=document.getElementById('login-btn');
+  errEl.textContent='';
+  if(!email||!pw){errEl.textContent='이메일과 비밀번호를 입력해주세요.';return;}
+  btn.disabled=true;btn.textContent='로그인 중...';
+  try{
+    const res=await fetch(SB_URL+'/auth/v1/token?grant_type=password',{
+      method:'POST',
+      headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({email:email,password:pw})
+    });
+    const data=await res.json();
+    if(!res.ok||!data.access_token){
+      errEl.textContent='로그인 실패: 이메일 또는 비밀번호를 확인해주세요.';
+      btn.disabled=false;btn.textContent='로그인';
+      return;
+    }
+    saveSession({access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000)});
+    document.getElementById('login-screen').style.display='none';
+    bootApp();
+  }catch(e){
+    errEl.textContent='네트워크 오류가 발생했습니다.';
+    btn.disabled=false;btn.textContent='로그인';
+  }
+}
+
+function doLogout(){
+  if(!confirm('로그아웃하시겠습니까?'))return;
+  clearSession();
+  location.reload();
+}
+
+async function refreshSessionIfNeeded(){
+  const s=getSession();
+  if(!s||!s.refresh_token)return null;
+  if(Date.now()<s.expires_at-60000)return s; // 아직 유효 (1분 여유)
+  try{
+    const res=await fetch(SB_URL+'/auth/v1/token?grant_type=refresh_token',{
+      method:'POST',
+      headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({refresh_token:s.refresh_token})
+    });
+    const data=await res.json();
+    if(!res.ok||!data.access_token){clearSession();return null;}
+    const ns={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000)};
+    saveSession(ns);
+    return ns;
+  }catch(e){
+    return s; // 네트워크 오류시 기존 토큰으로 일단 시도
+  }
+}
+
 async function sbPush(key,value){
+  const s=await refreshSessionIfNeeded();
+  if(!s){setSyncStatus('offline');return false;}
   try{
     const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=key',{
       method:'POST',
       headers:{
         'apikey':SB_KEY,
-        'Authorization':'Bearer '+SB_KEY,
+        'Authorization':'Bearer '+s.access_token,
         'Content-Type':'application/json',
         'Prefer':'resolution=merge-duplicates,return=minimal'
       },
@@ -966,9 +1044,11 @@ async function sbPush(key,value){
 }
 
 async function sbPull(key){
+  const s=await refreshSessionIfNeeded();
+  if(!s)return null;
   try{
     const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?key=eq.'+key+'&select=data,updated_at',{
-      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+s.access_token}
     });
     if(!res.ok)return null;
     const arr=await res.json();
@@ -3072,9 +3152,7 @@ function scheduleAutoComplete(){
   });
 }
 
-async function initApp(){
-  if(!checkExpiry())return;
-  initTheme();
+async function bootApp(){
   await syncFromCloud(false);   // 클라우드 데이터 먼저 받아오기 (샘플 생성/렌더링보다 우선)
   initSample();
   autoCompleteSchedules();
@@ -3084,6 +3162,18 @@ async function initApp(){
   setTimeout(checkBackupReminder,1200);
   setTimeout(updateNotifyBadge,800);
   startPeriodicSync();
+}
+
+async function initApp(){
+  if(!checkExpiry())return;
+  initTheme();
+  const s=await refreshSessionIfNeeded();
+  if(!s){
+    document.getElementById('login-screen').style.display='flex';
+    return;
+  }
+  document.getElementById('login-screen').style.display='none';
+  await bootApp();
 }
 initApp();
 </script>
