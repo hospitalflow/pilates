@@ -19,7 +19,7 @@
   --bd3:rgba(255,255,255,0.18);
   --tx:#e8edf5;
   --tx2:#b0bccf;
-  --mt:#5a6880;
+  --mt:#98a4ba;
   --dm:#8898b0;
   --ac:#4ecdc4;
   --ac2:#38b2ab;
@@ -51,17 +51,19 @@ body.light-mode{
   --bd3:rgba(0,0,0,0.2);
   --tx:#1a1f2e;
   --tx2:#4a5568;
-  --mt:#94a3b8;
-  --dm:#64748b;
-  --ac:#0d9488;
+  --mt:#4b5870;
+  --dm:#3d4b5e;
+  --ac:#0b5d56;
   --ac2:#0f766e;
-  --acd:rgba(13,148,136,0.1);
-  --red:#ef4444;
-  --redd:rgba(239,68,68,0.1);
-  --yel:#d97706;
-  --yeld:rgba(217,119,6,0.1);
-  --grn:#16a34a;
-  --grnd:rgba(22,163,74,0.1);
+  --acd:rgba(11,93,86,0.12);
+  --red:#b91c1c;
+  --redd:rgba(185,28,28,0.1);
+  --yel:#92400e;
+  --yeld:rgba(146,64,14,0.1);
+  --grn:#166534;
+  --grnd:rgba(22,101,52,0.1);
+  --pnk:#6d28d9;
+  --pnkd:rgba(109,40,217,0.1);
   --shadow:0 4px 24px rgba(0,0,0,0.1);
   --shadow-sm:0 2px 12px rgba(0,0,0,0.06);
 }
@@ -201,10 +203,34 @@ body.light-mode .tab-bar{background:rgba(255,255,255,0.96);}
   font-size:11px;font-weight:600;
 }
 .type-pri{background:var(--acd);color:var(--ac);}
+.type-ki{background:var(--acd);color:var(--ac);}
 .type-duo{background:var(--pnkd);color:var(--pnk);}
 .type-mat{background:var(--grnd);color:var(--grn);}
 .type-grp{background:var(--yeld);color:var(--yel);}
 .type-etc{background:var(--s3);color:var(--mt);}
+
+/* ── 월간 캘린더 일정 칩 ── */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:16px;}
+.cal-cell{padding:5px 4px 6px;border-radius:8px;cursor:pointer;min-height:60px;transition:background .12s;}
+.cal-daynum{font-size:12px;text-align:center;margin-bottom:1px;}
+.cal-entry{border-radius:5px;padding:2px 5px;margin-top:3px;font-size:9.5px;line-height:1.4;cursor:pointer;display:flex;gap:3px;align-items:baseline;}
+.cal-entry-time{font-weight:800;flex-shrink:0;color:var(--tx);}
+.cal-entry-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-weight:800;color:var(--tx);}
+.cal-entry-type{font-size:8.5px;font-weight:600;flex-shrink:0;}
+.cal-cell-dragover{background:var(--acd) !important;border:1.5px dashed var(--ac) !important;}
+@media(min-width:700px){
+  .cal-grid{gap:6px;}
+  .cal-cell{min-height:110px;padding:9px 7px;}
+  .cal-daynum{font-size:16px;margin-bottom:4px;}
+  .cal-entry{font-size:13.5px;padding:5px 9px;margin-top:6px;border-radius:7px;gap:6px;}
+  .cal-entry-type{font-size:11.5px;}
+}
+@media(min-width:1100px){
+  .cal-grid{gap:8px;}
+  .cal-cell{min-height:130px;padding:10px 8px;}
+  .cal-daynum{font-size:17px;}
+  .cal-entry{font-size:14.5px;padding:6px 10px;}
+}
 
 /* ── 진행 바 ── */
 .prog-bar{background:var(--bd2);border-radius:99px;overflow:hidden;}
@@ -513,7 +539,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
       <div style="text-align:center;font-size:11px;color:var(--pnk);font-weight:600;padding:4px;">토</div>
     </div>
     <!-- 날짜 그리드 -->
-    <div id="cal-view-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:16px;"></div>
+    <div id="cal-view-grid" class="cal-grid"></div>
     <!-- 선택된 날 일정 -->
     <div id="cal-day-schedule"></div>
   </div>
@@ -866,6 +892,41 @@ function calDayClick(dateStr){
   }
 }
 
+// ── 일정 드래그&드롭으로 날짜 이동 ──
+var _dragSchedId=null;
+function schedDragStart(e,schedId){
+  _dragSchedId=schedId;
+  if(e.dataTransfer){e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',schedId);}catch(err){}}
+  e.target.style.opacity='0.35';
+}
+function schedDragEnd(e){
+  e.target.style.opacity='';
+  _dragSchedId=null;
+  document.querySelectorAll('.cal-cell-dragover').forEach(function(el){el.classList.remove('cal-cell-dragover');});
+}
+function schedDragOver(e){
+  e.preventDefault();
+  e.currentTarget.classList.add('cal-cell-dragover');
+}
+function schedDragLeave(e){
+  e.currentTarget.classList.remove('cal-cell-dragover');
+}
+function schedDrop(e,targetDate){
+  e.preventDefault();
+  e.currentTarget.classList.remove('cal-cell-dragover');
+  var schedId=_dragSchedId||(e.dataTransfer&&e.dataTransfer.getData('text/plain'));
+  _dragSchedId=null;
+  if(!schedId)return;
+  var schs=loadSch();
+  var idx=schs.findIndex(function(x){return x.id===schedId;});
+  if(idx<0)return;
+  if(schs[idx].date===targetDate)return;
+  schs[idx].date=targetDate;
+  saveSch(schs);
+  calViewSelected=targetDate;
+  renderCalView();
+}
+
 const SK='pilates_members_v1', SK2='pilates_sessions_v1';
 
 // ── 수강권 관리 헬퍼 ──
@@ -1041,6 +1102,15 @@ function typeClass(t){
   if(t.includes('재활'))return'type-pri';
   return'type-etc';
 }
+function shortType(t){
+  if(!t)return'';
+  if(t.includes('개인'))return'개인';
+  if(t.includes('듀엣'))return'듀엣';
+  if(t.includes('매트'))return'매트';
+  if(t.includes('그룹'))return'그룹';
+  if(t.includes('재활'))return'재활';
+  return'기타';
+}
 function statusOf(m){const r=remain(m);if(r===0)return{cls:'badge-red',txt:'소진'};if(r<=3)return{cls:'badge-red',txt:`잔여 ${r}회 ⚠`};if(r<=5)return{cls:'badge-yel',txt:`잔여 ${r}회`};return{cls:'badge-grn',txt:`잔여 ${r}회`};}
 function colorOf(m){const r=remain(m);if(r===0||r<=3)return'var(--red)';if(r<=5)return'var(--yel)';return'var(--grn)';}
 function lastSessionDate(id){const ss=loadS();const list=ss[id]||[];if(!list.length)return null;return Math.max(...list.map(s=>s.ts));}
@@ -1142,7 +1212,7 @@ function renderNewRegistrations(){
   const list=ms.filter(m=>(m.start||'').startsWith(thisMonth));
   if(!list.length){el.innerHTML='';return;}
   const rows=list.map(m=>`<div onclick="showDetail('${m.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd);cursor:pointer;">
-      <div style="font-size:13px;font-weight:600;">🆕 ${m.name}</div>
+      <div style="font-size:14px;font-weight:800;">🆕 ${m.name}</div>
       <div style="font-size:11px;color:var(--mt);">${m.start}</div>
     </div>`).join('');
   el.innerHTML=`<div class="det-card">
@@ -1162,7 +1232,7 @@ function renderAbsentList(){
   }).filter(x=>x.diff!==null&&x.diff>=14).sort((a,b)=>b.diff-a.diff);
   if(!list.length){el.innerHTML='';return;}
   const rows=list.slice(0,5).map(x=>`<div onclick="showDetail('${x.m.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd);cursor:pointer;">
-      <div style="font-size:13px;font-weight:600;">${x.m.name}</div>
+      <div style="font-size:14px;font-weight:800;">${x.m.name}</div>
       <div style="font-size:11px;color:var(--mt);">${x.diff}일째 미출석</div>
     </div>`).join('');
   el.innerHTML=`<div class="det-card">
@@ -1186,7 +1256,7 @@ function renderTodaySched(){
         <div style="font-size:11px;font-weight:700;color:${s.done?'var(--grn)':'var(--ac)'};">${s.startTime}</div>
       </div>
       <div style="flex:1;min-width:0;">
-        <div style="font-size:13px;font-weight:600;">${s.memberName}${s.done?' <span style="font-size:10px;color:var(--grn);">✓완료</span>':''}</div>
+        <div style="font-size:14px;font-weight:800;">${s.memberName}${s.done?' <span style="font-size:10px;color:var(--grn);">✓완료</span>':''}</div>
         <div style="font-size:11px;color:var(--mt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.type||''}${r!==null?' · 잔여 '+r+'회':''}</div>
       </div>
     </div>`;
@@ -1214,7 +1284,7 @@ function renderWeekBirthday(){
     const diff=Math.round((x.date-now)/86400000);
     const label=diff===0?'오늘 🎉':diff===1?'내일':diff+'일 후';
     return`<div onclick="showDetail('${x.m.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd);cursor:pointer;">
-      <div style="font-size:13px;font-weight:600;">🎂 ${x.m.name}</div>
+      <div style="font-size:14px;font-weight:800;">🎂 ${x.m.name}</div>
       <div style="font-size:11px;color:var(--pnk);font-weight:700;">${label}</div>
     </div>`;
   }).join('');
@@ -1286,7 +1356,7 @@ function renderDashList(){
         '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">'+
           '<div style="width:44px;height:44px;border-radius:14px;background:'+c+'18;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:'+c+';flex-shrink:0;border:1.5px solid '+c+'40;">'+m.name[0]+'</div>'+
           '<div style="flex:1;min-width:0;">'+
-            '<div style="font-size:16px;font-weight:700;margin-bottom:2px;">'+m.name+'</div>'+
+            '<div style="font-size:17px;font-weight:900;color:var(--tx);margin-bottom:2px;">'+m.name+'</div>'+
             '<div style="font-size:11px;color:var(--mt);">'+( m.phone||'' )+(m.classtype?' · '+m.classtype:'')+'</div>'+
           '</div>'+
           '<div style="text-align:right;flex-shrink:0;">'+
@@ -1352,7 +1422,7 @@ function showDetail(id){
           flex-shrink:0;
         ">${m.name[0]}</div>
         <div style="flex:1;">
-          <div style="font-size:23px;font-weight:800;letter-spacing:-0.5px;margin-bottom:3px;">${m.name}</div>
+          <div style="font-size:24px;font-weight:900;color:var(--tx);letter-spacing:-0.5px;margin-bottom:3px;">${m.name}</div>
           <div style="font-size:12px;color:var(--mt);">${m.phone||''}${m.goal?' · '+m.goal:''}</div>
         </div>
         <div style="text-align:right;position:relative;">
@@ -1571,18 +1641,18 @@ function renderTicketCard(m){
       +'<div style="position:absolute;bottom:-40px;left:-10px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,0.04);pointer-events:none;"></div>'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;position:relative;">'
       +'<div><div style="font-size:22px;font-weight:800;">'+h.count+'회권</div>'
-      +'<div style="font-size:11px;opacity:0.7;margin-top:2px;">'+(m.classtype||'필라테스')+'</div>'+ddayBadge+'</div>'
+      +'<div style="font-size:11px;opacity:0.92;margin-top:2px;">'+(m.classtype||'필라테스')+'</div>'+ddayBadge+'</div>'
       +'<div style="background:'+statusColor+';color:#1a0a3a;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:800;">'+status+'</div>'
       +'</div>'
       +'<div style="display:flex;gap:20px;margin-bottom:14px;position:relative;">'
-      +'<div style="text-align:center;"><div style="font-size:28px;font-weight:800;font-family:monospace;">'+leftCount+'</div><div style="font-size:10px;opacity:0.6;margin-top:2px;">예약가능</div></div>'
+      +'<div style="text-align:center;"><div style="font-size:28px;font-weight:800;font-family:monospace;">'+leftCount+'</div><div style="font-size:10.5px;font-weight:600;opacity:0.9;margin-top:2px;">예약가능</div></div>'
       +'<div style="opacity:0.3;font-size:24px;align-self:center;">|</div>'
-      +'<div style="text-align:center;"><div style="font-size:28px;font-weight:800;font-family:monospace;">'+usedCount+'</div><div style="font-size:10px;opacity:0.6;margin-top:2px;">완료</div></div>'
+      +'<div style="text-align:center;"><div style="font-size:28px;font-weight:800;font-family:monospace;">'+usedCount+'</div><div style="font-size:10.5px;font-weight:600;opacity:0.9;margin-top:2px;">완료</div></div>'
       +'<div style="opacity:0.3;font-size:24px;align-self:center;">|</div>'
-      +'<div style="text-align:center;"><div style="font-size:28px;font-weight:800;font-family:monospace;">'+h.count+'</div><div style="font-size:10px;opacity:0.6;margin-top:2px;">전체</div></div>'
+      +'<div style="text-align:center;"><div style="font-size:28px;font-weight:800;font-family:monospace;">'+h.count+'</div><div style="font-size:10.5px;font-weight:600;opacity:0.9;margin-top:2px;">전체</div></div>'
       +'</div>'
       +'<div style="border-top:1px solid rgba(255,255,255,0.15);padding-top:10px;position:relative;">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;opacity:0.8;">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:600;opacity:0.95;">'
       +'<span>'+startFmt+(endDate?' ~ '+endDate:'')+'</span>'
       +'<span>'+(h.price?(h.price).toLocaleString('ko-KR')+'원':'')+(h.payment?' · '+h.payment:'')+'</span>'
       +'</div>'
@@ -1657,7 +1727,7 @@ function renderHistory(){
       return`<div class="history-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
           <div>
-            <div style="font-size:15px;font-weight:700;">${m.name}</div>
+            <div style="font-size:16px;font-weight:900;">${m.name}</div>
             <div style="font-size:11px;color:var(--mt);">${hist.length}회 등록 · 누적 ${fmtPrice(totalPaid)}</div>
           </div>
           <div class="mc-badge badge-ac">${hist.length}회차</div>
@@ -2016,7 +2086,7 @@ function renderWeekView(){
     const textColor=isSel?'#0f1117':i===0?'var(--red)':i===6?'var(--pnk)':'var(--tx)';
     const nameTagsBg=isSel?'rgba(255,255,255,0.25)':'var(--acd)';
     const nameTagsColor=isSel?'#0f1117':'var(--ac)';
-    const nameTags=daySchs.slice(0,4).map(s=>`<div style="font-size:9px;background:${nameTagsBg};color:${nameTagsColor};border-radius:3px;padding:1px 3px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.startTime} ${s.memberName}</div>`).join('');
+    const nameTags=daySchs.slice(0,4).map(s=>`<div style="font-size:9px;font-weight:800;background:${nameTagsBg};color:${nameTagsColor};border-radius:3px;padding:1px 3px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.startTime} ${s.memberName}</div>`).join('');
     const more=daySchs.length>4?`<div style="font-size:9px;color:var(--mt);">+${daySchs.length-4}건</div>`:'';
     html+=`<div onclick="calDayClick('${dateStr}')" style="padding:5px 3px;border-radius:9px;cursor:pointer;background:${bg};border:${border};min-height:80px;">
       <div style="font-size:11px;font-weight:700;color:${textColor};text-align:center;margin-bottom:3px;">${days[i]}<br>${d.getDate()}</div>
@@ -2307,18 +2377,23 @@ function renderCalView(){
     const isToday=d===today.getDate()&&calViewMonth===today.getMonth()&&calViewYear===today.getFullYear();
     const isSel=dateStr===calViewSelected;
     const dow=(startDow+d-1)%7;
-    const daySchs=scheds.filter(s=>s.date===dateStr);
-    const hasEvent=daySchs.length>0;
-    const textColor=isSel?'#0f1117':dow===0?'var(--red)':dow===6?'var(--pnk)':'var(--tx)';
-    const bg=isSel?'var(--ac)':isToday?'var(--s3)':'transparent';
-    const border=isToday&&!isSel?'1px solid var(--ac)':'1px solid transparent';
-    const nameTagsBg=isSel?'rgba(255,255,255,0.25)':'var(--acd)';
-    const nameTagsColor=isSel?'#0f1117':'var(--ac)';
-    const nameTags=daySchs.slice(0,3).map(s=>`<div style="font-size:9px;background:${nameTagsBg};color:${nameTagsColor};border-radius:3px;padding:1px 3px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;text-align:left;">${s.memberName}</div>`).join('');
-    const moreTag=daySchs.length>3?`<div style="font-size:9px;color:var(--mt);margin-top:1px;">...</div>`:'';
-    html+=`<div onclick="calDayClick('${dateStr}')" style="padding:4px 3px;border-radius:9px;cursor:pointer;background:${bg};border:${border};min-height:52px;vertical-align:top;">
-      <div style="font-size:12px;color:${textColor};font-weight:${isSel?700:400};text-align:center;margin-bottom:2px;">${d}</div>
-      ${nameTags}${moreTag}
+    const daySchs=scheds.filter(s=>s.date===dateStr).sort((a,b)=>a.startTime.localeCompare(b.startTime));
+    const textColor=dow===0?'var(--red)':dow===6?'var(--pnk)':'var(--tx)';
+    const cellBg=isSel?'var(--acd)':isToday?'var(--s2)':'var(--s1)';
+    const cellBorder=isSel?'1.5px solid var(--ac)':isToday?'1px solid var(--ac)':'1px solid var(--bd)';
+    const entries=daySchs.map(s=>{
+      const tc=typeClass(s.type);
+      const doneStyle=s.done?'opacity:0.65;text-decoration:line-through;':'';
+      const draggableAttr=s.done?'':`draggable="true" ondragstart="schedDragStart(event,'${s.id}')" ondragend="schedDragEnd(event)"`;
+      return`<div ${draggableAttr} onclick="event.stopPropagation();openScheduleModal('${dateStr}','${s.id}')" class="cal-entry ${tc}" style="${doneStyle}${s.done?'':'cursor:grab;'}">
+        <span class="cal-entry-time">${s.startTime}</span>
+        <span class="cal-entry-name">${s.memberName}</span>
+        <span class="cal-entry-type">${shortType(s.type)}</span>
+      </div>`;
+    }).join('');
+    html+=`<div onclick="calDayClick('${dateStr}')" ondragover="schedDragOver(event)" ondragleave="schedDragLeave(event)" ondrop="schedDrop(event,'${dateStr}')" class="cal-cell" style="background:${cellBg};border:${cellBorder};">
+      <div class="cal-daynum" style="color:${textColor};font-weight:${isToday||isSel?800:500};">${d}</div>
+      ${entries}
     </div>`;
   }
   document.getElementById('cal-view-grid').innerHTML=html;
@@ -2355,7 +2430,7 @@ function renderDaySchedule(dateStr){
           <div style="font-size:10px;color:var(--mt);">${s.endTime||''}</div>
         </div>
         <div style="flex:1;">
-          <div style="font-size:14px;font-weight:600;">${s.memberName} ${done?'<span style="font-size:10px;color:var(--grn);">✓완료</span>':''}</div>
+          <div style="font-size:15px;font-weight:800;">${s.memberName} ${done?'<span style="font-size:10px;color:var(--grn);">✓완료</span>':''}</div>
           <div style="font-size:11px;color:var(--mt);">${s.type||''} · 잔여 ${r}회</div>
         </div>
       </div>
