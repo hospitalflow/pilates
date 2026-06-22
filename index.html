@@ -427,7 +427,6 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
       <button onclick="openScheduleModal(localDateStr())" style="flex:1;padding:12px;border-radius:var(--radius);background:var(--s1);border:1px solid var(--bd);color:var(--tx);font-size:13px;font-weight:700;cursor:pointer;">📅 일정 등록</button>
     </div>
     <div id="home-today-sched"></div>
-    <div id="home-revenue"></div>
     <div id="home-birthday"></div>
     <div id="home-newreg"></div>
     <div id="home-absent"></div>
@@ -567,8 +566,24 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
     <div class="frow"><label class="flabel">연락처</label><input class="finput" id="mm-phone" placeholder="010-0000-0000" type="tel"></div>
   </div>
   <div class="fgrid2">
-    <div class="frow"><label class="flabel">총 횟수 *</label><input class="finput" id="mm-total" placeholder="10" type="number" min="1"></div>
+    <div class="frow"><label class="flabel">총 횟수 *</label><input class="finput" id="mm-total" type="number" min="1" placeholder="10" oninput="autoCalcMmDays()"></div>
     <div class="frow"><label class="flabel">시작일</label><input class="finput" id="mm-start" type="date"></div>
+  </div>
+  <div class="fgrid2">
+    <div class="frow"><label class="flabel">주당 수업 횟수</label>
+      <select class="fselect" id="mm-weekly" onchange="autoCalcMmDays()">
+        <option value="1">주 1회</option>
+        <option value="2" selected>주 2회</option>
+        <option value="3">주 3회</option>
+        <option value="4">주 4회</option>
+        <option value="5">주 5회</option>
+      </select>
+    </div>
+    <div class="frow">
+      <label class="flabel">수강 기한 (일)</label>
+      <input class="finput" id="mm-days" type="number" min="1" oninput="mmDaysManual=true;updateDaysHint('mm-days-hint',this.value)">
+      <div id="mm-days-hint" style="font-size:10.5px;color:var(--mt);margin-top:4px;"></div>
+    </div>
   </div>
   <div class="fgrid2">
     <div class="frow"><label class="flabel">금액 (원)</label><input class="finput" id="mm-price" placeholder="300000" type="number"></div>
@@ -701,15 +716,30 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="modal-sub" id="mr-sub"></div>
   <input type="hidden" id="mr-mid">
   <div class="fgrid2">
-    <div class="frow"><label class="flabel">횟수 *</label><input class="finput" id="mr-total" placeholder="10" type="number" min="1"></div>
-    <div class="frow"><label class="flabel">수강 기간 (일)</label><input class="finput" id="mr-days" placeholder="90" type="number" min="1"></div>
+    <div class="frow"><label class="flabel">횟수 *</label><input class="finput" id="mr-total" placeholder="10" type="number" min="1" oninput="autoCalcMrDays()"></div>
+    <div class="frow"><label class="flabel">주당 수업 횟수</label>
+      <select class="fselect" id="mr-weekly" onchange="autoCalcMrDays()">
+        <option value="1">주 1회</option>
+        <option value="2" selected>주 2회</option>
+        <option value="3">주 3회</option>
+        <option value="4">주 4회</option>
+        <option value="5">주 5회</option>
+      </select>
+    </div>
   </div>
   <div class="fgrid2">
+    <div class="frow">
+      <label class="flabel">수강 기한 (일)</label>
+      <input class="finput" id="mr-days" placeholder="90" type="number" min="1" oninput="mrDaysManual=true;updateDaysHint('mr-days-hint',this.value)">
+      <div id="mr-days-hint" style="font-size:10.5px;color:var(--mt);margin-top:4px;"></div>
+    </div>
     <div class="frow"><label class="flabel">금액 (원)</label><input class="finput" id="mr-price" placeholder="600000" type="number"></div>
-    <div class="frow"><label class="flabel">할인율 (%)</label><input class="finput" id="mr-discount" placeholder="0" type="number" min="0" max="100"></div>
   </div>
   <div class="fgrid2">
+    <div class="frow"><label class="flabel">할인율 (%)</label><input class="finput" id="mr-discount" placeholder="0" type="number" min="0" max="100"></div>
     <div class="frow"><label class="flabel">시작일</label><input class="finput" id="mr-start" type="date"></div>
+  </div>
+  <div class="fgrid2">
     <div class="frow"><label class="flabel">담당 강사</label><input class="finput" id="mr-trainer" placeholder="강사 이름"></div>
   </div>
   <div class="frow"><label class="flabel">결제 수단</label>
@@ -869,6 +899,56 @@ function getActiveTicket(m){
   return null;
 }
 
+// 주당 수업 횟수 기준 예상 수강 기간(일) 자동계산 — 미출석/공백 대비 30% 여유 포함
+function calcSuggestedDays(total,weekly){
+  total=parseInt(total)||0;weekly=parseInt(weekly)||2;
+  if(!total)return 90;
+  var weeks=Math.ceil(total/weekly);
+  return Math.ceil(weeks*7*1.3);
+}
+function getTicketExpireDate(h){
+  if(!h||!h.date||!h.days)return null;
+  var d=new Date(h.date);
+  d.setDate(d.getDate()+(parseInt(h.days)||0));
+  return d;
+}
+function getActiveTicketExpireInfo(m){
+  var at=getActiveTicket(m);
+  if(!at)return null;
+  var ed=getTicketExpireDate(at.ticket);
+  if(!ed)return null;
+  var now=new Date();now.setHours(0,0,0,0);
+  ed.setHours(0,0,0,0);
+  var daysLeft=Math.round((ed-now)/86400000);
+  return{date:ed,daysLeft:daysLeft};
+}
+
+// ── 수강 기한 자동계산 (등록/갱신 모달 공용) ──
+var mmDaysManual=false, mrDaysManual=false;
+function updateDaysHint(elId,days){
+  var el=document.getElementById(elId);if(!el)return;
+  days=parseInt(days)||0;
+  if(!days){el.textContent='';return;}
+  var months=(days/30).toFixed(1);
+  el.textContent='약 '+months+'개월 (자동계산 · 직접 수정 가능)';
+}
+function autoCalcMmDays(){
+  if(mmDaysManual)return;
+  var total=parseInt(document.getElementById('mm-total').value)||0;
+  var weekly=parseInt(document.getElementById('mm-weekly').value)||2;
+  var days=calcSuggestedDays(total,weekly);
+  document.getElementById('mm-days').value=days;
+  updateDaysHint('mm-days-hint',days);
+}
+function autoCalcMrDays(){
+  if(mrDaysManual)return;
+  var total=parseInt(document.getElementById('mr-total').value)||0;
+  var weekly=parseInt(document.getElementById('mr-weekly').value)||2;
+  var days=calcSuggestedDays(total,weekly);
+  document.getElementById('mr-days').value=days;
+  updateDaysHint('mr-days-hint',days);
+}
+
 function getTotalRemain(m){
   if(!m.renewHistory||!m.renewHistory.length) return (m.total||0)-(m.used||0);
   return m.renewHistory.reduce(function(s,h){return s+Math.max(0,(h.count||0)-(h.used||0));},0);
@@ -1010,6 +1090,16 @@ function renderDash(){
   `;
   let alerts='';
   ms.filter(m=>remain(m)===0).forEach(m=>{alerts+=`<div class="alert-banner">🚨 <strong>${m.name}</strong> 회원 횟수 소진 — 수강권 소진</div>`;});
+  ms.filter(m=>remain(m)>0).forEach(m=>{
+    const info=getActiveTicketExpireInfo(m);
+    if(info&&info.daysLeft<=7){
+      const isOver=info.daysLeft<0;
+      alerts+=`<div class="${isOver?'alert-banner':'warn-banner'}" style="align-items:center;">
+        <span style="flex:1;">⏳ <strong>${m.name}</strong> 수강권 ${isOver?(-info.daysLeft)+'일 지남':info.daysLeft===0?'오늘 만료':'D-'+info.daysLeft} — 기한 ${isOver?'만료':'임박'}</span>
+        ${m.phone?'<button onclick="event.stopPropagation();sendRenewMsg(\''+m.phone+'\',\''+m.name+'\',this)" style="flex-shrink:0;padding:5px 10px;border-radius:7px;background:var(--yel);border:none;color:#0f1117;font-size:11px;font-weight:700;cursor:pointer;">✉️ 문자</button>':''}
+      </div>`;
+    }
+  });
   ms.filter(m=>remain(m)>0&&remain(m)<=3).forEach(m=>{
   alerts+=`<div class="warn-banner" style="align-items:center;">
     <span style="flex:1;">⚡ <strong>${m.name}</strong> 잔여 ${remain(m)}회 — 수강권 추가 안내 타이밍</span>
@@ -1022,7 +1112,6 @@ function renderDash(){
 
 function renderHome(){
   renderTodaySched();
-  renderMonthRevenue();
   renderWeekBirthday();
   renderNewRegistrations();
   renderAbsentList();
@@ -1467,12 +1556,22 @@ function renderTicketCard(m){
     else statusColor='rgba(255,255,255,0.4)';
 
     var statusColor=leftCount>0?'rgba(100,255,180,0.9)':(isCurrent?'rgba(255,120,120,0.9)':'rgba(255,255,255,0.4)');
+    var ddayBadge='';
+    if(isCurrent&&leftCount>0&&h.date&&h.days){
+      var edDday=new Date(h.date);edDday.setHours(0,0,0,0);
+      edDday.setDate(edDday.getDate()+(parseInt(h.days)||0));
+      var nowDday=new Date();nowDday.setHours(0,0,0,0);
+      var dleft=Math.round((edDday-nowDday)/86400000);
+      var ddayLabel=dleft<0?'기한 만료':dleft===0?'기한 오늘':'D-'+dleft;
+      var ddayBg=dleft<0?'rgba(255,80,80,0.95)':dleft<=7?'rgba(255,180,60,0.95)':'rgba(255,255,255,0.18)';
+      ddayBadge='<div style="background:'+ddayBg+';color:#1a0a3a;padding:3px 10px;border-radius:20px;font-size:10.5px;font-weight:800;margin-top:6px;display:inline-block;">⏳ '+ddayLabel+'</div>';
+    }
     return '<div style="background:'+bg+';border-radius:18px;padding:20px;margin-bottom:10px;color:#fff;position:relative;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.3);">'
       +'<div style="position:absolute;top:-30px;right:-30px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.06);pointer-events:none;"></div>'
       +'<div style="position:absolute;bottom:-40px;left:-10px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,0.04);pointer-events:none;"></div>'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;position:relative;">'
       +'<div><div style="font-size:22px;font-weight:800;">'+h.count+'회권</div>'
-      +'<div style="font-size:11px;opacity:0.7;margin-top:2px;">'+(m.classtype||'필라테스')+'</div></div>'
+      +'<div style="font-size:11px;opacity:0.7;margin-top:2px;">'+(m.classtype||'필라테스')+'</div>'+ddayBadge+'</div>'
       +'<div style="background:'+statusColor+';color:#1a0a3a;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:800;">'+status+'</div>'
       +'</div>'
       +'<div style="display:flex;gap:20px;margin-bottom:14px;position:relative;">'
@@ -1535,7 +1634,10 @@ function editTicket(mid, ticketIdx){
   document.getElementById('mr-sub').textContent=ms[mi].name+' 회원 · 수강권 수정';
   document.getElementById('mr-total').value=h.count||'';
   document.getElementById('mr-price').value=h.price||'';
+  document.getElementById('mr-weekly').value=h.weekly||2;
+  mrDaysManual=true;
   document.getElementById('mr-days').value=h.days||90;
+  updateDaysHint('mr-days-hint',document.getElementById('mr-days').value);
   document.getElementById('mr-discount').value=h.discount||0;
   document.getElementById('mr-start').value=h.date||localDateStr();
   document.getElementById('mr-trainer').value=h.trainer||'';
@@ -1579,6 +1681,9 @@ function openAddModal(){
   document.getElementById('mm-price').value='';
   document.getElementById('mm-classtype').value='기구 필라테스 (개인)';
   document.getElementById('mm-start').value=localDateStr();
+  document.getElementById('mm-weekly').value='2';
+  mmDaysManual=false;
+  autoCalcMmDays();
   document.getElementById('modal-member').classList.add('open');
 }
 function openEditModal(id){
@@ -1606,6 +1711,11 @@ function openEditModal(id){
   } else {
     ['mm-birth-y','mm-birth-m','mm-birth-d'].forEach(f=>{const el=document.getElementById(f);if(el)el.value='';});
   }
+  const firstTicket=(m.renewHistory&&m.renewHistory[0])||{};
+  document.getElementById('mm-weekly').value=firstTicket.weekly||2;
+  mmDaysManual=false;
+  document.getElementById('mm-days').value=firstTicket.days||calcSuggestedDays(m.total||10,firstTicket.weekly||2);
+  updateDaysHint('mm-days-hint',document.getElementById('mm-days').value);
   document.getElementById('modal-member').classList.add('open');
 }
 function saveMember(){
@@ -1617,7 +1727,16 @@ function saveMember(){
   const ms=loadM(),existing=ms.find(x=>x.id===id);
   const startDate=document.getElementById('mm-start').value||localDateStr();
   const price=parseInt(document.getElementById('mm-price').value)||0;
-  const data={id,name,phone:document.getElementById('mm-phone').value.trim(),total,used:existing?existing.used:0,start:startDate,price,classtype:document.getElementById('mm-classtype').value,goal:document.getElementById('mm-goal').value.trim(),memo:document.getElementById('mm-memo').value.trim(),birthday:document.getElementById('mm-birthday').value||'',renewHistory:existing?existing.renewHistory:[{date:startDate,count:total,price}]};
+  const weekly=parseInt(document.getElementById('mm-weekly').value)||2;
+  const days=parseInt(document.getElementById('mm-days').value)||calcSuggestedDays(total,weekly);
+  let renewHistory;
+  if(existing&&existing.renewHistory&&existing.renewHistory.length){
+    renewHistory=existing.renewHistory.slice();
+    renewHistory[0]=Object.assign({},renewHistory[0],{weekly,days});
+  }else{
+    renewHistory=[{date:startDate,count:total,price,weekly,days}];
+  }
+  const data={id,name,phone:document.getElementById('mm-phone').value.trim(),total,used:existing?existing.used:0,start:startDate,price,classtype:document.getElementById('mm-classtype').value,goal:document.getElementById('mm-goal').value.trim(),memo:document.getElementById('mm-memo').value.trim(),birthday:document.getElementById('mm-birthday').value||'',renewHistory};
   const idx=ms.findIndex(x=>x.id===id);
   if(idx>=0)ms[idx]=data;else ms.push(data);
   saveM(ms);closeOv('modal-member');
@@ -1718,12 +1837,15 @@ function openRenewModal(mid){
   document.getElementById('mr-sub').textContent=`${m.name} 회원 · 현재 잔여 ${remain(m)}회`;
   document.getElementById('mr-total').value=m.total||10;
   document.getElementById('mr-price').value=m.price||'';
-  document.getElementById('mr-days').value=90;
+  const lastTicket=(m.renewHistory&&m.renewHistory[m.renewHistory.length-1])||{};
+  document.getElementById('mr-weekly').value=lastTicket.weekly||2;
+  mrDaysManual=false;
   document.getElementById('mr-discount').value=0;
   document.getElementById('mr-start').value=localDateStr();
   document.getElementById('mr-trainer').value=m.designer||'';
   document.getElementById('mr-payment').value='';
   document.getElementById('mr-memo').value='';
+  autoCalcMrDays();
   document.getElementById('modal-renew').classList.add('open');
 }
 function saveRenew(){
@@ -1744,6 +1866,7 @@ function saveRenew(){
     ms[idx].total=Math.max(0,(ms[idx].total||0)-h.count+newCount);
     h.count=newCount;
     h.price=finalPrice;
+    h.weekly=parseInt(document.getElementById('mr-weekly').value)||2;
     h.days=parseInt(document.getElementById('mr-days').value)||90;
     h.date=document.getElementById('mr-start').value||localDateStr();
     h.trainer=document.getElementById('mr-trainer').value.trim();
@@ -1765,6 +1888,7 @@ function saveRenew(){
   const discount=parseInt(document.getElementById('mr-discount').value)||0;
   const finalPrice=Math.round(price*(1-discount/100));
   const days=parseInt(document.getElementById('mr-days').value)||90;
+  const weekly=parseInt(document.getElementById('mr-weekly').value)||2;
   const startDate=document.getElementById('mr-start').value||localDateStr();
   const trainer=document.getElementById('mr-trainer').value.trim();
   const payment=document.getElementById('mr-payment').value;
@@ -1774,7 +1898,7 @@ function saveRenew(){
   if(trainer)ms[idx].designer=trainer;
   // start는 위에서 이미 설정됨
   if(!ms[idx].renewHistory)ms[idx].renewHistory=[];
-  ms[idx].renewHistory.push({date:startDate,count:addCount,used:0,price:finalPrice,days:days,payment:payment,discount:discount,trainer:trainer,memo:document.getElementById('mr-memo').value.trim()});
+  ms[idx].renewHistory.push({date:startDate,count:addCount,used:0,price:finalPrice,days:days,weekly:weekly,payment:payment,discount:discount,trainer:trainer,memo:document.getElementById('mr-memo').value.trim()});
   saveM(ms);closeOv('modal-renew');
   if(curDet===mid)showDetail(mid);else renderDash();
   alert(`🌸 ${ms[idx].name} 수강권 추가 완료! ${addCount}회 추가됐습니다.`);
@@ -2321,15 +2445,18 @@ function onSchMemberChange(){
 
 function saveSchedule(){
   const memberId=document.getElementById('sch-member').value;
+  const customName=document.getElementById('sch-custom-name').value.trim();
   const date=document.getElementById('sch-date').value;
   const startTime=document.getElementById('sch-start-time').value;
-  if(!memberId||!date||!startTime){alert('회원, 날짜, 시작 시간은 필수입니다.');return;}
+  if(!date||!startTime){alert('날짜, 시작 시간은 필수입니다.');return;}
+  if(!memberId&&!customName){alert('회원을 선택하거나 수업명을 직접 입력해주세요. (예: 체험 수업)');return;}
   const ms=loadM();
   const member=ms.find(m=>m.id===memberId);
   const id=document.getElementById('sch-id').value||uid();
   const schs=loadSch();
   const data={
-    id, memberId, memberName:member?member.name:'',
+    id, memberId, memberName:member?member.name:customName,
+    customName: member?'':customName,
     date, startTime,
     endTime:document.getElementById('sch-end-time').value,
     type:document.getElementById('sch-type').value,
@@ -2404,6 +2531,27 @@ function buildNotifications(){
       action:()=>openRenewModal(m.id),
       actionLabel:'재등록',
     });
+  });
+
+  // 수강권 기한 임박/만료
+  ms.forEach(m=>{
+    if(remain(m)<=0)return;
+    const info=getActiveTicketExpireInfo(m);
+    if(!info)return;
+    if(info.daysLeft<=7){
+      const isOver=info.daysLeft<0;
+      items.push({
+        id:'expire_'+m.id,
+        type:isOver?'danger':'warn',
+        ico:'⏳',
+        color:isOver?'var(--red)':'var(--yel)',
+        title:isOver?'수강권 기한 만료':'수강권 기한 임박',
+        desc:`[${m.name}] ${isOver?(-info.daysLeft)+'일 지남':info.daysLeft===0?'오늘 만료':info.daysLeft+'일 후 만료'} (잔여 ${remain(m)}회)`,
+        time:isOver?'기한 지남':'D-'+info.daysLeft,
+        ts:now.getTime()-2500,
+        priority:isOver?2:3,
+      });
+    }
   });
 
   // 잔여 3회 이하
