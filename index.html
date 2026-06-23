@@ -3235,23 +3235,17 @@ async function initApp(){
 initApp();
 </script>
 <script>
+// 서비스워커/캐시로 인한 업데이트 반영 지연 문제 해결을 위해
+// 기존에 설치된 서비스워커와 캐시를 완전히 제거합니다 (오프라인 지원 비활성화).
 if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('./sw.js').then(reg=>{
-      reg.addEventListener('updatefound', ()=>{
-        const newWorker = reg.installing;
-        newWorker.addEventListener('statechange', ()=>{
-          if(newWorker.state==='installed' && navigator.serviceWorker.controller){
-            // 새 버전 감지 시 자동 새로고침
-            navigator.serviceWorker.addEventListener('controllerchange', ()=>{
-              window.location.reload();
-            });
-            newWorker.postMessage({action:'skipWaiting'});
-          }
-        });
-      });
-    });
-  });
+  navigator.serviceWorker.getRegistrations().then(regs=>{
+    regs.forEach(reg=>reg.unregister());
+  }).catch(()=>{});
+}
+if(window.caches&&caches.keys){
+  caches.keys().then(names=>{
+    names.forEach(name=>caches.delete(name));
+  }).catch(()=>{});
 }
 </script>
 </body>
