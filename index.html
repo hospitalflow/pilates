@@ -431,20 +431,6 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="exp-contact">전화: <a id="exp-contact-link" href="#">010-0000-0000</a></div>
 </div>
 
-<!-- 로그인 화면 -->
-<div class="exp-screen" id="login-screen" style="display:none;">
-  <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--ac);margin-bottom:8px;">Pilates Studio</div>
-  <div style="font-size:40px;margin-bottom:10px;">🔐</div>
-  <div style="font-size:18px;font-weight:800;color:var(--tx);margin-bottom:6px;">로그인이 필요합니다</div>
-  <div style="font-size:13px;color:var(--mt);margin-bottom:26px;line-height:1.5;">회원 정보 보호를 위해<br>로그인 후 이용해주세요</div>
-  <div style="width:100%;max-width:300px;display:flex;flex-direction:column;gap:10px;">
-    <input id="login-email" type="email" placeholder="이메일" class="finput" style="text-align:center;" autocomplete="username">
-    <input id="login-pw" type="password" placeholder="비밀번호" class="finput" style="text-align:center;" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
-    <div id="login-error" style="color:var(--red);font-size:12px;min-height:16px;font-weight:600;"></div>
-    <button onclick="doLogin()" id="login-btn" style="background:var(--ac);border:none;color:#0f1117;font-weight:800;padding:13px;border-radius:10px;font-size:14px;cursor:pointer;">로그인</button>
-  </div>
-</div>
-
 <div class="app">
 
 <!-- 헤더 -->
@@ -458,7 +444,6 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   </div>
   <div class="hdr-right">
     <span id="sync-status" onclick="syncFromCloud(false)" style="font-size:15px;cursor:pointer;padding:4px;flex-shrink:0;" title="동기화 상태 (클릭하여 새로고침)">☁️</span>
-    <button class="hdr-btn" onclick="doLogout()" title="로그아웃" style="font-size:14px;padding:7px 9px;">🚪</button>
     <button class="hdr-btn" id="theme-toggle-btn" onclick="toggleTheme()" style="font-size:16px;padding:7px 10px;" title="다크/라이트 전환">☀️</button>
     <button class="hdr-btn" onclick="doBackup()">💾<span class="hdr-btn-label"> 백업</span></button>
     <button class="hdr-btn" onclick="doRestore()">📂<span class="hdr-btn-label"> 복원</span></button>
@@ -970,96 +955,15 @@ function setSyncStatus(state){
   else if(state==='error'){el.textContent='❌';el.title='동기화 오류';}
 }
 
-// ── 로그인 / 세션 관리 ──
-const SB_AUTH_KEY='pilates_sb_session_v1';
-function getSession(){try{return JSON.parse(localStorage.getItem(SB_AUTH_KEY));}catch{return null;}}
-function saveSession(s){localStorage.setItem(SB_AUTH_KEY,JSON.stringify(s));}
-function clearSession(){localStorage.removeItem(SB_AUTH_KEY);}
-
-async function doLogin(){
-  const email=document.getElementById('login-email').value.trim();
-  const pw=document.getElementById('login-pw').value;
-  const errEl=document.getElementById('login-error');
-  const btn=document.getElementById('login-btn');
-  errEl.textContent='';
-  if(!email||!pw){errEl.textContent='이메일과 비밀번호를 입력해주세요.';return;}
-  btn.disabled=true;btn.textContent='로그인 중...';
-  try{
-    const fetchPromise=fetch(SB_URL+'/auth/v1/token?grant_type=password',{
-      method:'POST',
-      headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
-      body:JSON.stringify({email:email,password:pw})
-    });
-    const timeoutPromise=new Promise((_,reject)=>setTimeout(()=>reject(new Error('TIMEOUT')),10000));
-    const res=await Promise.race([fetchPromise,timeoutPromise]);
-    const data=await res.json();
-    if(!res.ok||!data.access_token){
-      console.error('[Supabase] 로그인 실패:',res.status,data);
-      errEl.textContent='로그인 실패: '+(data.error_description||data.msg||'이메일 또는 비밀번호를 확인해주세요.');
-      btn.disabled=false;btn.textContent='로그인';
-      return;
-    }
-    saveSession({access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000)});
-    document.getElementById('login-screen').style.display='none';
-    bootApp();
-  }catch(e){
-    console.error('[Supabase] 로그인 네트워크 오류:',e);
-    if(e.message==='TIMEOUT'){
-      errEl.textContent='요청 시간이 초과됐습니다 (10초). 인터넷 연결을 확인해주세요.';
-    }else{
-      errEl.textContent='네트워크 오류가 발생했습니다: '+e.message;
-    }
-    btn.disabled=false;btn.textContent='로그인';
-  }
-}
-
-function doLogout(){
-  if(!confirm('로그아웃하시겠습니까?'))return;
-  clearSession();
-  location.reload();
-}
-
-let _refreshPromise=null;
-async function refreshSessionIfNeeded(){
-  const s=getSession();
-  if(!s||!s.refresh_token)return null;
-  if(Date.now()<s.expires_at-60000)return s; // 아직 유효 (1분 여유)
-  if(_refreshPromise)return _refreshPromise; // 이미 진행 중인 갱신 요청이 있으면 그 결과를 같이 기다림 (중복 갱신 방지)
-  _refreshPromise=(async()=>{
-    try{
-      const res=await fetch(SB_URL+'/auth/v1/token?grant_type=refresh_token',{
-        method:'POST',
-        headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
-        body:JSON.stringify({refresh_token:s.refresh_token})
-      });
-      const data=await res.json();
-      if(!res.ok||!data.access_token){
-        console.error('[Supabase] 토큰 갱신 실패:',res.status,data);
-        clearSession();
-        return null;
-      }
-      const ns={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000)};
-      saveSession(ns);
-      return ns;
-    }catch(e){
-      console.error('[Supabase] 토큰 갱신 네트워크 오류:',e);
-      return s; // 네트워크 오류시 기존 토큰으로 일단 시도
-    }finally{
-      _refreshPromise=null;
-    }
-  })();
-  return _refreshPromise;
-}
+// ── 로그인 기능은 잠시 비활성화 (필요시 재도입) ──
 
 async function sbPush(key,value){
-  const s=await refreshSessionIfNeeded();
-  if(!s){setSyncStatus('offline');return false;}
   try{
     const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=key',{
       method:'POST',
       headers:{
         'apikey':SB_KEY,
-        'Authorization':'Bearer '+s.access_token,
+        'Authorization':'Bearer '+SB_KEY,
         'Content-Type':'application/json',
         'Prefer':'resolution=merge-duplicates,return=minimal'
       },
@@ -1079,11 +983,9 @@ async function sbPush(key,value){
 }
 
 async function sbPull(key){
-  const s=await refreshSessionIfNeeded();
-  if(!s)return null;
   try{
     const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?key=eq.'+key+'&select=data,updated_at',{
-      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+s.access_token}
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
     });
     if(!res.ok){
       const errBody=await res.text().catch(()=>'');
@@ -1105,17 +1007,6 @@ async function syncFromCloud(silent){
   _syncing=true;
   if(!silent)setSyncStatus('syncing');
   try{
-    const s0=await refreshSessionIfNeeded();
-    if(!s0){
-      console.error('[Supabase] 동기화 중단: 로그인 세션이 없습니다.');
-      setSyncStatus('offline');
-      const loginScreen=document.getElementById('login-screen');
-      if(loginScreen&&loginScreen.style.display!=='flex'){
-        loginScreen.style.display='flex';
-      }
-      _syncing=false;
-      return;
-    }
     const [mem,ses,sch]=await Promise.all([sbPull('members'),sbPull('sessions'),sbPull('schedules')]);
     let changed=false;
     if(mem){
@@ -3224,12 +3115,6 @@ async function bootApp(){
 async function initApp(){
   if(!checkExpiry())return;
   initTheme();
-  const s=await refreshSessionIfNeeded();
-  if(!s){
-    document.getElementById('login-screen').style.display='flex';
-    return;
-  }
-  document.getElementById('login-screen').style.display='none';
   await bootApp();
 }
 initApp();
