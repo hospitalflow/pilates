@@ -985,14 +985,17 @@ async function doLogin(){
   if(!email||!pw){errEl.textContent='이메일과 비밀번호를 입력해주세요.';return;}
   btn.disabled=true;btn.textContent='로그인 중...';
   try{
-    const res=await fetch(SB_URL+'/auth/v1/token?grant_type=password',{
+    const fetchPromise=fetch(SB_URL+'/auth/v1/token?grant_type=password',{
       method:'POST',
       headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
       body:JSON.stringify({email:email,password:pw})
     });
+    const timeoutPromise=new Promise((_,reject)=>setTimeout(()=>reject(new Error('TIMEOUT')),10000));
+    const res=await Promise.race([fetchPromise,timeoutPromise]);
     const data=await res.json();
     if(!res.ok||!data.access_token){
-      errEl.textContent='로그인 실패: 이메일 또는 비밀번호를 확인해주세요.';
+      console.error('[Supabase] 로그인 실패:',res.status,data);
+      errEl.textContent='로그인 실패: '+(data.error_description||data.msg||'이메일 또는 비밀번호를 확인해주세요.');
       btn.disabled=false;btn.textContent='로그인';
       return;
     }
@@ -1000,7 +1003,12 @@ async function doLogin(){
     document.getElementById('login-screen').style.display='none';
     bootApp();
   }catch(e){
-    errEl.textContent='네트워크 오류가 발생했습니다.';
+    console.error('[Supabase] 로그인 네트워크 오류:',e);
+    if(e.message==='TIMEOUT'){
+      errEl.textContent='요청 시간이 초과됐습니다 (10초). 인터넷 연결을 확인해주세요.';
+    }else{
+      errEl.textContent='네트워크 오류가 발생했습니다: '+e.message;
+    }
     btn.disabled=false;btn.textContent='로그인';
   }
 }
