@@ -1011,24 +1011,36 @@ function doLogout(){
   location.reload();
 }
 
+let _refreshPromise=null;
 async function refreshSessionIfNeeded(){
   const s=getSession();
   if(!s||!s.refresh_token)return null;
   if(Date.now()<s.expires_at-60000)return s; // 아직 유효 (1분 여유)
-  try{
-    const res=await fetch(SB_URL+'/auth/v1/token?grant_type=refresh_token',{
-      method:'POST',
-      headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
-      body:JSON.stringify({refresh_token:s.refresh_token})
-    });
-    const data=await res.json();
-    if(!res.ok||!data.access_token){clearSession();return null;}
-    const ns={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000)};
-    saveSession(ns);
-    return ns;
-  }catch(e){
-    return s; // 네트워크 오류시 기존 토큰으로 일단 시도
-  }
+  if(_refreshPromise)return _refreshPromise; // 이미 진행 중인 갱신 요청이 있으면 그 결과를 같이 기다림 (중복 갱신 방지)
+  _refreshPromise=(async()=>{
+    try{
+      const res=await fetch(SB_URL+'/auth/v1/token?grant_type=refresh_token',{
+        method:'POST',
+        headers:{'apikey':SB_KEY,'Content-Type':'application/json'},
+        body:JSON.stringify({refresh_token:s.refresh_token})
+      });
+      const data=await res.json();
+      if(!res.ok||!data.access_token){
+        console.error('[Supabase] 토큰 갱신 실패:',res.status,data);
+        clearSession();
+        return null;
+      }
+      const ns={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000)};
+      saveSession(ns);
+      return ns;
+    }catch(e){
+      console.error('[Supabase] 토큰 갱신 네트워크 오류:',e);
+      return s; // 네트워크 오류시 기존 토큰으로 일단 시도
+    }finally{
+      _refreshPromise=null;
+    }
+  })();
+  return _refreshPromise;
 }
 
 async function sbPush(key,value){
@@ -1045,9 +1057,14 @@ async function sbPush(key,value){
       },
       body:JSON.stringify({key:key,data:value,updated_at:new Date().toISOString()})
     });
+    if(!res.ok){
+      const errBody=await res.text().catch(()=>'');
+      console.error('[Supabase] push 실패:',key,res.status,errBody);
+    }
     setSyncStatus(res.ok?'synced':'error');
     return res.ok;
   }catch(e){
+    console.error('[Supabase] push 네트워크 오류:',key,e);
     setSyncStatus('offline');
     return false;
   }
@@ -1060,10 +1077,15 @@ async function sbPull(key){
     const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?key=eq.'+key+'&select=data,updated_at',{
       headers:{'apikey':SB_KEY,'Authorization':'Bearer '+s.access_token}
     });
-    if(!res.ok)return null;
+    if(!res.ok){
+      const errBody=await res.text().catch(()=>'');
+      console.error('[Supabase] pull 실패:',key,res.status,errBody);
+      return null;
+    }
     const arr=await res.json();
     return arr&&arr[0]?arr[0]:null;
   }catch(e){
+    console.error('[Supabase] pull 네트워크 오류:',key,e);
     return null;
   }
 }
@@ -1075,6 +1097,13 @@ async function syncFromCloud(silent){
   _syncing=true;
   if(!silent)setSyncStatus('syncing');
   try{
+    const s0=await refreshSessionIfNeeded();
+    if(!s0){
+      console.error('[Supabase] 동기화 중단: 로그인 세션이 없습니다.');
+      setSyncStatus('offline');
+      _syncing=false;
+      return;
+    }
     const [mem,ses,sch]=await Promise.all([sbPull('members'),sbPull('sessions'),sbPull('schedules')]);
     let changed=false;
     if(mem){
@@ -1101,13 +1130,19 @@ async function syncFromCloud(silent){
         changed=true;
       }
     }
-    setSyncStatus(mem||ses||sch?'synced':'offline');
+    if(!mem&&!ses&&!sch){
+      console.error('[Supabase] 세 항목 모두 가져오기 실패 - 네트워크 또는 권한 문제 가능성. Network 탭에서 supabase 요청의 상태코드를 확인하세요.');
+      setSyncStatus('error');
+    }else{
+      setSyncStatus('synced');
+    }
     if(changed&&typeof refreshCurrentView==='function')refreshCurrentView();
     // 클라우드에 아직 데이터가 없으면(첫 실행) 현재 로컬 데이터로 초기화
     if(!mem)sbPush('members',loadM());
     if(!ses)sbPush('sessions',loadS());
     if(!sch)sbPush('schedules',loadSch());
   }catch(e){
+    console.error('[Supabase] 동기화 중 예외 발생:',e);
     setSyncStatus('offline');
   }
   _syncing=false;
