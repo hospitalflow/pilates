@@ -460,7 +460,8 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   </div>
   <div class="hdr-right">
     <span id="sync-status" onclick="syncFromCloud(false)" style="font-size:15px;cursor:pointer;padding:4px;flex-shrink:0;" title="동기화 상태 (클릭하여 새로고침)">☁️</span>
-    <button class="hdr-btn" onclick="openAccountModal()" title="계정 관리" style="font-size:14px;padding:7px 9px;">🚪</button>
+    <button class="hdr-btn" onclick="doLogout()" title="로그아웃" style="font-size:14px;padding:7px 9px;">🚪</button>
+    <button class="hdr-btn" onclick="openAccountModal()" title="비밀번호 변경" style="font-size:14px;padding:7px 9px;">🔑</button>
     <button class="hdr-btn" id="theme-toggle-btn" onclick="toggleTheme()" style="font-size:16px;padding:7px 10px;" title="다크/라이트 전환">☀️</button>
     <button class="hdr-btn" onclick="doBackup()">💾<span class="hdr-btn-label"> 백업</span></button>
     <button class="hdr-btn" onclick="doRestore()">📂<span class="hdr-btn-label"> 복원</span></button>
@@ -903,22 +904,18 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 </div>
 </div>
 
-<!-- 계정 관리 모달 -->
+<!-- 비밀번호 변경 모달 -->
 <div class="overlay" id="modal-account">
 <div class="modal">
   <div class="modal-handle"></div>
   <button class="modal-close" onclick="closeOv('modal-account')">✕</button>
-  <div class="modal-title">계정 관리</div>
-  <div class="modal-sub">비밀번호 변경 또는 로그아웃</div>
+  <div class="modal-title">비밀번호 변경</div>
+  <div class="modal-sub">새 비밀번호를 입력해주세요</div>
 
   <div class="frow"><label class="flabel">새 비밀번호 (6자 이상)</label><input class="finput" id="pw-new" type="password" placeholder="새 비밀번호 입력" autocomplete="new-password"></div>
   <div class="frow"><label class="flabel">새 비밀번호 확인</label><input class="finput" id="pw-confirm" type="password" placeholder="다시 입력" autocomplete="new-password" onkeydown="if(event.key==='Enter')changePassword(this)"></div>
   <div id="pw-msg" style="font-size:12px;font-weight:600;min-height:16px;margin-bottom:4px;"></div>
-  <button class="btn-save" onclick="changePassword(this)" style="width:100%;margin-bottom:18px;">🔑 비밀번호 변경</button>
-
-  <div style="border-top:1px solid var(--bd);padding-top:14px;">
-    <button class="btn-del" onclick="doLogout()" style="width:100%;">🚪 로그아웃</button>
-  </div>
+  <button class="btn-save" onclick="changePassword(this)" style="width:100%;">🔑 비밀번호 변경</button>
 </div>
 </div>
 
