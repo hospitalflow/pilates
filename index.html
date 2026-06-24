@@ -460,7 +460,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   </div>
   <div class="hdr-right">
     <span id="sync-status" onclick="syncFromCloud(false)" style="font-size:15px;cursor:pointer;padding:4px;flex-shrink:0;" title="동기화 상태 (클릭하여 새로고침)">☁️</span>
-    <button class="hdr-btn" onclick="doLogout()" title="로그아웃" style="font-size:14px;padding:7px 9px;">🚪</button>
+    <button class="hdr-btn" onclick="openAccountModal()" title="계정 관리" style="font-size:14px;padding:7px 9px;">🚪</button>
     <button class="hdr-btn" id="theme-toggle-btn" onclick="toggleTheme()" style="font-size:16px;padding:7px 10px;" title="다크/라이트 전환">☀️</button>
     <button class="hdr-btn" onclick="doBackup()">💾<span class="hdr-btn-label"> 백업</span></button>
     <button class="hdr-btn" onclick="doRestore()">📂<span class="hdr-btn-label"> 복원</span></button>
@@ -903,6 +903,25 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 </div>
 </div>
 
+<!-- 계정 관리 모달 -->
+<div class="overlay" id="modal-account">
+<div class="modal">
+  <div class="modal-handle"></div>
+  <button class="modal-close" onclick="closeOv('modal-account')">✕</button>
+  <div class="modal-title">계정 관리</div>
+  <div class="modal-sub">비밀번호 변경 또는 로그아웃</div>
+
+  <div class="frow"><label class="flabel">새 비밀번호 (6자 이상)</label><input class="finput" id="pw-new" type="password" placeholder="새 비밀번호 입력" autocomplete="new-password"></div>
+  <div class="frow"><label class="flabel">새 비밀번호 확인</label><input class="finput" id="pw-confirm" type="password" placeholder="다시 입력" autocomplete="new-password" onkeydown="if(event.key==='Enter')changePassword(this)"></div>
+  <div id="pw-msg" style="font-size:12px;font-weight:600;min-height:16px;margin-bottom:4px;"></div>
+  <button class="btn-save" onclick="changePassword(this)" style="width:100%;margin-bottom:18px;">🔑 비밀번호 변경</button>
+
+  <div style="border-top:1px solid var(--bd);padding-top:14px;">
+    <button class="btn-del" onclick="doLogout()" style="width:100%;">🚪 로그아웃</button>
+  </div>
+</div>
+</div>
+
 <script>
 function calDayClick(dateStr){
   if(calViewSelected===dateStr){
@@ -1001,7 +1020,7 @@ async function doLogin(){
       btn.disabled=false;btn.textContent='로그인';
       return;
     }
-    saveAuthSession({access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000)});
+    saveAuthSession({access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000),user_id:data.user&&data.user.id});
     document.getElementById('login-screen').style.display='none';
     bootApp();
   }catch(e){
@@ -1019,6 +1038,54 @@ function doLogout(){
   if(!confirm('로그아웃하시겠습니까?'))return;
   clearSession();
   location.reload();
+}
+
+function openAccountModal(){
+  document.getElementById('pw-new').value='';
+  document.getElementById('pw-confirm').value='';
+  document.getElementById('pw-msg').textContent='';
+  document.getElementById('modal-account').classList.add('open');
+}
+
+async function changePassword(btn){
+  if(btn&&btn.disabled)return;
+  const pw1=document.getElementById('pw-new').value;
+  const pw2=document.getElementById('pw-confirm').value;
+  const msgEl=document.getElementById('pw-msg');
+  msgEl.style.color='var(--red)';
+  msgEl.textContent='';
+  if(!pw1||pw1.length<6){msgEl.textContent='비밀번호는 6자 이상이어야 합니다.';return;}
+  if(pw1!==pw2){msgEl.textContent='비밀번호가 일치하지 않습니다.';return;}
+  const s=await refreshSessionIfNeeded();
+  if(!s){msgEl.textContent='로그인 세션이 없습니다. 다시 로그인해주세요.';return;}
+  if(btn)btn.disabled=true;
+  const origText=btn?btn.textContent:'';
+  if(btn)btn.textContent='변경 중...';
+  try{
+    const fetchPromise=fetch(SB_URL+'/auth/v1/user',{
+      method:'PUT',
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+s.access_token,'Content-Type':'application/json'},
+      body:JSON.stringify({password:pw1})
+    });
+    const timeoutPromise=new Promise((_,reject)=>setTimeout(()=>reject(new Error('TIMEOUT')),10000));
+    const res=await Promise.race([fetchPromise,timeoutPromise]);
+    const data=await res.json();
+    if(!res.ok){
+      console.error('[Supabase] 비밀번호 변경 실패:',res.status,data);
+      msgEl.textContent='변경 실패: '+(data.error_description||data.msg||'다시 시도해주세요.');
+      if(btn){btn.disabled=false;btn.textContent=origText;}
+      return;
+    }
+    msgEl.style.color='var(--grn)';
+    msgEl.textContent='✅ 비밀번호가 변경됐습니다.';
+    document.getElementById('pw-new').value='';
+    document.getElementById('pw-confirm').value='';
+    if(btn){btn.disabled=false;btn.textContent=origText;}
+  }catch(e){
+    console.error('[Supabase] 비밀번호 변경 네트워크 오류:',e);
+    msgEl.textContent=e.message==='TIMEOUT'?'요청 시간이 초과됐습니다. 인터넷 연결을 확인해주세요.':'네트워크 오류: '+e.message;
+    if(btn){btn.disabled=false;btn.textContent=origText;}
+  }
 }
 
 let _refreshPromise=null;
@@ -1040,7 +1107,7 @@ async function refreshSessionIfNeeded(){
         clearSession();
         return null;
       }
-      const ns={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000)};
+      const ns={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000),user_id:(data.user&&data.user.id)||s.user_id};
       saveAuthSession(ns);
       return ns;
     }catch(e){
@@ -1056,8 +1123,9 @@ async function refreshSessionIfNeeded(){
 async function sbPush(key,value){
   const s=await refreshSessionIfNeeded();
   if(!s){setSyncStatus('offline');return false;}
+  if(!s.user_id){console.error('[Supabase] push 실패: 사용자 식별값이 없습니다.');setSyncStatus('error');return false;}
   try{
-    const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=key',{
+    const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=owner_id,key',{
       method:'POST',
       headers:{
         'apikey':SB_KEY,
@@ -1065,7 +1133,7 @@ async function sbPush(key,value){
         'Content-Type':'application/json',
         'Prefer':'resolution=merge-duplicates,return=minimal'
       },
-      body:JSON.stringify({key:key,data:value,updated_at:new Date().toISOString()})
+      body:JSON.stringify({key:key,owner_id:s.user_id,data:value,updated_at:new Date().toISOString()})
     });
     if(!res.ok){
       const errBody=await res.text().catch(()=>'');
