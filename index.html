@@ -2538,11 +2538,12 @@ document.addEventListener('click',function(e){
 });
 
 // ── 만료일 관리 ──
-const EXP_DATE = '2026-06-30';   // ← 만료일 (YYYY-MM-DD)
 const CONTACT  = '010-2222-5208'; // ← 스튜디오 연락처
 
-function checkExpiry(){
-  const exp=new Date(EXP_DATE);exp.setHours(23,59,59,999);
+async function checkExpiry(){
+  const sub=await sbPull('subscription');
+  if(!sub||!sub.data||!sub.data.expires_at){return true;} // 설정 안 된 계정은 제한 없음
+  const exp=new Date(sub.data.expires_at);exp.setHours(23,59,59,999);
   const diffDays=Math.ceil((exp-new Date())/86400000);
   if(diffDays<=0){showExpScreen();return false;}
   if(diffDays<=7)showExpWarning(diffDays);
@@ -3348,7 +3349,6 @@ async function bootApp(){
 }
 
 async function initApp(){
-  if(!checkExpiry())return;
   initTheme();
   const s=await refreshSessionIfNeeded();
   if(!s){
@@ -3356,6 +3356,8 @@ async function initApp(){
     return;
   }
   document.getElementById('login-screen').style.display='none';
+  const ok=await checkExpiry();
+  if(!ok)return;
   await bootApp();
 }
 initApp();
