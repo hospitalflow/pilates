@@ -103,8 +103,9 @@ body.light-mode .hdr{background:rgba(240,242,245,0.92);}
 @media(max-width:430px){
   .hdr{padding:12px 10px 10px;gap:4px;}
   .hdr-logo{font-size:15px;}
-  .hdr-btn{padding:7px 8px;font-size:12px;}
+  .hdr-btn{padding:9px;min-width:36px;min-height:36px;font-size:13px;display:inline-flex;align-items:center;justify-content:center;}
   .hdr-btn .hdr-btn-label{display:none;}
+  #sync-status{min-width:32px;min-height:32px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;}
 }
 .hdr-right{display:flex;gap:6px;align-items:center;}
 .hdr-btn{
@@ -371,6 +372,7 @@ body.light-mode .tab-bar{background:rgba(255,255,255,0.96);}
   background:var(--ac);border:none;
   color:#0a0c10;font-size:13px;font-weight:700;cursor:pointer;
 }
+.btn-save:disabled{opacity:0.5;cursor:default;}
 .btn-del{
   padding:10px 14px;border-radius:10px;
   background:var(--redd);border:1px solid var(--red);
@@ -606,7 +608,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 </div>
 
 <!-- 회원 등록/수정 모달 -->
-<div class="overlay" id="modal-member" onclick="closeOvOut(event,'modal-member')">
+<div class="overlay" id="modal-member">
 <div class="modal">
   <div class="modal-handle"></div>
   <button class="modal-close" onclick="closeOv('modal-member')">✕</button>
@@ -666,13 +668,13 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="modal-footer">
     <button class="btn-del" id="mm-del-btn" onclick="delMemberFromModal()" style="display:none;">🗑 삭제</button>
     <button class="btn-cancel" onclick="closeOv('modal-member')">취소</button>
-    <button class="btn-save" onclick="saveMember()">저장</button>
+    <button class="btn-save" onclick="saveMember(this)">저장</button>
   </div>
 </div>
 </div>
 
 <!-- 수업 완료 모달 -->
-<div class="overlay" id="modal-session" onclick="closeOvOut(event,'modal-session')">
+<div class="overlay" id="modal-session">
 <div class="modal">
   <div class="modal-handle"></div>
   <button class="modal-close" onclick="closeOv('modal-session')">✕</button>
@@ -754,13 +756,13 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="frow"><label class="flabel">수업 노트</label><textarea class="ftextarea" id="ms-note" placeholder="오늘 집중한 동작, 자세 교정 포인트, 다음 수업 계획 등"></textarea></div>
   <div class="modal-footer">
     <button class="btn-cancel" onclick="closeOv('modal-session')">취소</button>
-    <button class="btn-save" onclick="saveSession()">저장 (-1회)</button>
+    <button class="btn-save" onclick="saveSession(this)">저장 (-1회)</button>
   </div>
 </div>
 </div>
 
 <!-- 재등록 모달 -->
-<div class="overlay" id="modal-renew" onclick="closeOvOut(event,'modal-renew')">
+<div class="overlay" id="modal-renew">
 <div class="modal">
   <div class="modal-handle"></div>
   <button class="modal-close" onclick="closeOv('modal-renew')">✕</button>
@@ -806,13 +808,13 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="frow"><label class="flabel">메모</label><input class="finput" id="mr-memo" placeholder="할인 적용, 패키지 변경 등"></div>
   <div class="modal-footer">
     <button class="btn-cancel" onclick="closeOv('modal-renew')">취소</button>
-    <button class="btn-save" onclick="saveRenew()">수강권 추가 완료</button>
+    <button class="btn-save" onclick="saveRenew(this)">수강권 추가 완료</button>
   </div>
 </div>
 </div>
 
 <!-- 일정 등록 모달 -->
-<div class="overlay" id="modal-schedule" onclick="closeOvOut(event,'modal-schedule')">
+<div class="overlay" id="modal-schedule">
 <div class="modal">
   <div class="modal-handle"></div>
   <button class="modal-close" onclick="closeOv('modal-schedule')">✕</button>
@@ -896,7 +898,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="modal-footer">
     <button class="btn-del" id="sch-del-btn" onclick="deleteSchedule()" style="display:none;">🗑 삭제</button>
     <button class="btn-cancel" onclick="closeOv('modal-schedule')">취소</button>
-    <button class="btn-save" onclick="saveSchedule()">저장</button>
+    <button class="btn-save" onclick="saveSchedule(this)">저장</button>
   </div>
 </div>
 </div>
@@ -1265,6 +1267,26 @@ function getTotalRemain(m){
   return m.renewHistory.reduce(function(s,h){return s+Math.max(0,(h.count||0)-(h.used||0));},0);
 }
 
+// 이력 화면에서 "수업 후 잔여"를 정확히 보여주기 위한 시점별 잔여 계산
+// (여러 번 재등록한 회원도 그 시점에 실제로 남았던 횟수를 재구성함)
+function computeHistoricalRemain(m,sessions){
+  const result={};
+  const hist=(m.renewHistory&&m.renewHistory.length)?m.renewHistory:[{date:m.start||'',count:m.total||0}];
+  const batches=hist.map(function(h){return{date:h.date?new Date(h.date).getTime():0,left:h.count||0};}).sort(function(a,b){return a.date-b.date;});
+  const sessionsAsc=sessions.slice().sort(function(a,b){return a.ts-b.ts;});
+  sessionsAsc.forEach(function(s){
+    // 이 세션 시점 이전에 이미 등록된 배치 중, 가장 오래된 것부터 차감
+    for(let i=0;i<batches.length;i++){
+      if(batches[i].date<=s.ts&&batches[i].left>0){batches[i].left--;break;}
+    }
+    // 이 세션 시점까지 등록된 배치들의 잔여 합 (미래에 등록될 배치는 제외)
+    const totalLeft=batches.reduce(function(sum,b){return b.date<=s.ts?sum+b.left:sum;},0);
+    const sid=s.id?s.id:('_'+s.ts);
+    result[sid]=totalLeft;
+  });
+  return result;
+}
+
 function deductTicket(m){
   // 가장 오래된 수강권부터 차감
   migrateRenewHistory(m);
@@ -1630,7 +1652,9 @@ function renderDashList(){
         memoDiv+
       '</div>';
     }).join('')
-    :'<div class="empty"><div class="empty-ico">🤸</div>등록된 회원이 없습니다<br><br><button class="hdr-btn primary" onclick="openAddModal()">+ 첫 회원 등록</button></div>';
+    :(loadM().length
+      ?'<div class="empty"><div class="empty-ico">🔍</div>검색 결과가 없습니다</div>'
+      :'<div class="empty"><div class="empty-ico">🤸</div>등록된 회원이 없습니다<br><br><button class="hdr-btn primary" onclick="openAddModal()">+ 첫 회원 등록</button></div>');
 }
 
 function showDetail(id){
@@ -1796,6 +1820,7 @@ function showDetail(id){
     } else {
       _sesDelMap={};
       var groups2={};
+      var histRemainMap=computeHistoricalRemain(m,myS);
       myS.forEach(function(s,i){
         var d2=new Date(s.ts);
         var dk=d2.getFullYear()+'년 '+(d2.getMonth()+1)+'월 '+d2.getDate()+'일 ('+days2[d2.getDay()]+')';
@@ -1813,7 +1838,7 @@ function showDetail(id){
           _sesDelMap[key]={mid:m.id,sid:sid};
           var d2=new Date(s.ts);
           var t=d2.getHours().toString().padStart(2,'0')+':'+d2.getMinutes().toString().padStart(2,'0');
-          var rem=m.total-sesNum;
+          var rem=histRemainMap[sid]!==undefined?histRemainMap[sid]:getTotalRemain(m);
           h+='<div class="det-row"><span class="det-key">'+sesNum+'회차</span><span style="font-weight:700;color:var(--ac);">'+t+'</span></div>';
           h+='<div class="det-row"><span class="det-key">수업 유형</span><span class="type-tag '+typeClass(s.type)+'">'+s.type+'</span></div>';
           h+='<div class="det-row"><span class="det-key">수업 후 잔여</span><span style="font-weight:600;color:'+(rem<=3?'var(--red)':'var(--tx)')+';">'+rem+'회</span></div>';
@@ -2038,11 +2063,13 @@ function openEditModal(id){
   updateDaysHint('mm-days-hint',document.getElementById('mm-days').value);
   document.getElementById('modal-member').classList.add('open');
 }
-function saveMember(){
+function saveMember(btn){
+  if(btn&&btn.disabled)return;
   const name=document.getElementById('mm-name').value.trim();
   const total=parseInt(document.getElementById('mm-total').value)||0;
   if(!name){alert('이름을 입력해주세요.');return;}
   if(!total){alert('총 횟수를 입력해주세요.');return;}
+  if(btn)btn.disabled=true;
   const id=document.getElementById('mm-id').value||uid();
   const ms=loadM(),existing=ms.find(x=>x.id===id);
   const startDate=document.getElementById('mm-start').value||localDateStr();
@@ -2052,7 +2079,9 @@ function saveMember(){
   let renewHistory;
   if(existing&&existing.renewHistory&&existing.renewHistory.length){
     renewHistory=existing.renewHistory.slice();
-    renewHistory[0]=Object.assign({},renewHistory[0],{weekly,days});
+    const totalDelta=total-(existing.total||0);
+    const newCount=Math.max(renewHistory[0].used||0,(renewHistory[0].count||0)+totalDelta);
+    renewHistory[0]=Object.assign({},renewHistory[0],{weekly,days,count:newCount});
   }else{
     renewHistory=[{date:startDate,count:total,price,weekly,days}];
   }
@@ -2060,12 +2089,15 @@ function saveMember(){
   const idx=ms.findIndex(x=>x.id===id);
   if(idx>=0)ms[idx]=data;else ms.push(data);
   saveM(ms);closeOv('modal-member');
+  if(btn)btn.disabled=false;
   const av=document.querySelector('.view.active')?.id?.replace('view-','');
   if(av==='detail')showDetail(id);else renderDash();
 }
 function delMemberFromModal(){
   const id=document.getElementById('mm-id').value;if(!id)return;
-  if(!confirm('삭제하면 복구할 수 없습니다. 계속할까요?'))return;
+  const m=loadM().find(x=>x.id===id);
+  const name=m?m.name:'이 회원';
+  if(!confirm(`'${name}' 회원을 삭제할까요?\n회원 정보와 수업 기록이 모두 삭제되며 복구할 수 없습니다.`))return;
   saveM(loadM().filter(x=>x.id!==id));
   const ss=loadS();delete ss[id];saveS(ss);
   closeOv('modal-member');gv('dash');
@@ -2098,9 +2130,11 @@ function openSessionModal(mid){
   document.getElementById('time-popup').style.display='none';
   document.getElementById('modal-session').classList.add('open');
 }
-function saveSession(){
+function saveSession(btn){
+  if(btn&&btn.disabled)return;
   const mid=document.getElementById('ms-mid').value;
   const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
+  if(btn)btn.disabled=true;
   migrateRenewHistory(ms[idx]);deductTicket(ms[idx]);saveM(ms);
   const msDate=document.getElementById('ms-date').value;
   const msTime=document.getElementById('ms-time').value||'10:00';
@@ -2110,6 +2144,7 @@ function saveSession(){
   const sid=uid();
   ss[mid].unshift({id:sid,ts:msTs,type:document.getElementById('ms-type').value,note:document.getElementById('ms-note').value.trim()});
   saveS(ss);closeOv('modal-session');
+  if(btn)btn.disabled=false;
   if(curDet===mid)showDetail(mid);else renderDash();
 }
 window.delSes=function(mid,sid){
@@ -2168,7 +2203,8 @@ function openRenewModal(mid){
   autoCalcMrDays();
   document.getElementById('modal-renew').classList.add('open');
 }
-function saveRenew(){
+function saveRenew(btn){
+  if(btn&&btn.disabled)return;
   const modal=document.getElementById('modal-renew');
   const editIdx=modal.dataset.editIdx;
   if(editIdx!==undefined&&editIdx!==''){
@@ -2178,6 +2214,7 @@ function saveRenew(){
     migrateRenewHistory(ms[idx]);
     const h=ms[idx].renewHistory[parseInt(editIdx)];
     if(!h)return;
+    if(btn)btn.disabled=true;
     const newCount=parseInt(document.getElementById('mr-total').value)||0;
     const price=parseInt(document.getElementById('mr-price').value)||0;
     const discount=parseInt(document.getElementById('mr-discount').value)||0;
@@ -2196,6 +2233,7 @@ function saveRenew(){
     saveM(ms);
     delete modal.dataset.editIdx;
     closeOv('modal-renew');
+    if(btn)btn.disabled=false;
     if(curDet===mid)showDetail(mid);else renderDash();
     return;
   }
@@ -2204,6 +2242,7 @@ function saveRenew(){
   const addCount=parseInt(document.getElementById('mr-total').value)||0;
   if(!addCount){alert('추가 횟수를 입력해주세요.');return;}
   const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
+  if(btn)btn.disabled=true;
   const price=parseInt(document.getElementById('mr-price').value)||0;
   const discount=parseInt(document.getElementById('mr-discount').value)||0;
   const finalPrice=Math.round(price*(1-discount/100));
@@ -2220,12 +2259,13 @@ function saveRenew(){
   if(!ms[idx].renewHistory)ms[idx].renewHistory=[];
   ms[idx].renewHistory.push({date:startDate,count:addCount,used:0,price:finalPrice,days:days,weekly:weekly,payment:payment,discount:discount,trainer:trainer,memo:document.getElementById('mr-memo').value.trim()});
   saveM(ms);closeOv('modal-renew');
+  if(btn)btn.disabled=false;
   if(curDet===mid)showDetail(mid);else renderDash();
   alert(`🌸 ${ms[idx].name} 수강권 추가 완료! ${addCount}회 추가됐습니다.`);
 }
 
 function doBackup(){
-  const payload={members:loadM(),sessions:loadS(),exportedAt:new Date().toISOString()};
+  const payload={members:loadM(),sessions:loadS(),schedules:loadSch(),exportedAt:new Date().toISOString()};
   const a=document.createElement('a');
   a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(payload,null,2));
   a.download=`필라테스회원관리_백업_${new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','')}json`;
@@ -2242,7 +2282,7 @@ function doRestore(){
         const data=JSON.parse(ev.target.result);
         if(!data.members)throw new Error('올바른 백업 파일이 아닙니다.');
         if(!confirm(`백업 파일에서 회원 ${data.members.length}명을 복원합니다.\n현재 데이터는 덮어씌워집니다. 계속할까요?`))return;
-        saveM(data.members);if(data.sessions)saveS(data.sessions);
+        saveM(data.members);if(data.sessions)saveS(data.sessions);if(data.schedules)saveSch(data.schedules);
         alert('✅ 복원 완료!');gv('dash');
       }catch(err){alert('복원 실패: '+err.message);}
     };
@@ -2752,6 +2792,7 @@ function openScheduleModal(date,schedId){
     }
   }
   document.getElementById('modal-schedule').classList.add('open');
+  onSchMemberChange();
 }
 
 function onSchMemberChange(){
@@ -2768,13 +2809,15 @@ function onSchMemberChange(){
   }
 }
 
-function saveSchedule(){
+function saveSchedule(btn){
+  if(btn&&btn.disabled)return;
   const memberId=document.getElementById('sch-member').value;
   const customName=document.getElementById('sch-custom-name').value.trim();
   const date=document.getElementById('sch-date').value;
   const startTime=document.getElementById('sch-start-time').value;
   if(!date||!startTime){alert('날짜, 시작 시간은 필수입니다.');return;}
   if(!memberId&&!customName){alert('회원을 선택하거나 수업명을 직접 입력해주세요. (예: 체험 수업)');return;}
+  if(btn)btn.disabled=true;
   const ms=loadM();
   const member=ms.find(m=>m.id===memberId);
   const id=document.getElementById('sch-id').value||uid();
@@ -2791,6 +2834,7 @@ function saveSchedule(){
   if(idx>=0)schs[idx]=data;else schs.push(data);
   saveSch(schs);
   closeOv('modal-schedule');
+  if(btn)btn.disabled=false;
   calViewSelected=date;
   renderCalView();
 }
@@ -2853,7 +2897,7 @@ function buildNotifications(){
       time:'확인 필요',
       ts:now.getTime()-2000,
       priority:2,
-      action:()=>openRenewModal(m.id),
+      actionMemberId:m.id,
       actionLabel:'재등록',
     });
   });
@@ -2981,8 +3025,8 @@ function renderNotify(){
     const bg=isRead?'var(--s1)':'var(--s2)';
     const actionBtn=item.actionLabel&&item.smsLink
       ?`<button onclick="event.stopPropagation();location.href='${item.smsLink}';markRead('${item.id}')" style="margin-top:8px;padding:5px 12px;border-radius:7px;background:var(--acd);border:1px solid var(--ac);color:var(--ac);font-size:11px;font-weight:600;cursor:pointer;">${item.actionLabel}</button>`
-      :item.actionLabel&&item.action
-      ?`<button onclick="event.stopPropagation();(${item.action.toString()})();markRead('${item.id}')" style="margin-top:8px;padding:5px 12px;border-radius:7px;background:var(--acd);border:1px solid var(--ac);color:var(--ac);font-size:11px;font-weight:600;cursor:pointer;">${item.actionLabel}</button>`
+      :item.actionLabel&&item.actionMemberId
+      ?`<button onclick="event.stopPropagation();openRenewModal('${item.actionMemberId}');markRead('${item.id}')" style="margin-top:8px;padding:5px 12px;border-radius:7px;background:var(--acd);border:1px solid var(--ac);color:var(--ac);font-size:11px;font-weight:600;cursor:pointer;">${item.actionLabel}</button>`
       :'';
     return`<div onclick="markRead('${item.id}')" style="background:${bg};border:1px solid var(--bd);border-radius:12px;padding:13px 14px;margin-bottom:8px;cursor:pointer;transition:background .14s;${!isRead?'border-left:3px solid '+item.color+';':''}">
       <div style="display:flex;align-items:flex-start;gap:10px;">
@@ -3156,17 +3200,24 @@ function autoCompleteSchedules(){
     if(endDt>now)return;
     const ms=loadM();
     const idx=ms.findIndex(function(x){return x.id===s.memberId;});
-    if(idx>=0&&getTotalRemain(ms[idx])>0){
-      migrateRenewHistory(ms[idx]);
-      deductTicket(ms[idx]);
-      saveM(ms);
-      const ss=loadS();
-      if(!ss[s.memberId])ss[s.memberId]=[];
-      ss[s.memberId].unshift({id:uid(),ts:endDt.getTime(),type:s.type||'기구 필라테스 (개인)',note:'(자동 완료)'});
-      saveS(ss);
+    if(idx>=0){
+      if(getTotalRemain(ms[idx])>0){
+        migrateRenewHistory(ms[idx]);
+        deductTicket(ms[idx]);
+        saveM(ms);
+        const ss=loadS();
+        if(!ss[s.memberId])ss[s.memberId]=[];
+        ss[s.memberId].unshift({id:uid(),ts:endDt.getTime(),type:s.type||'기구 필라테스 (개인)',note:'(자동 완료)'});
+        saveS(ss);
+        s.done=true;
+        changed=true;
+      }
+      // 잔여 횟수가 0이면 자동완료 처리하지 않고 그대로 남겨둠 (수동 확인 필요)
+    }else{
+      // 연결된 회원이 없는 일정(체험 등 직접입력)은 차감할 게 없으니 그냥 완료 처리
+      s.done=true;
+      changed=true;
     }
-    s.done=true;
-    changed=true;
   });
   if(changed)saveSch(schs);
 }
@@ -3190,17 +3241,23 @@ function scheduleAutoComplete(){
       if(idx<0||schs2[idx].done)return;
       const ms=loadM();
       const mi=ms.findIndex(function(x){return x.id===s.memberId;});
-      if(mi>=0&&ms[mi].used<ms[mi].total){
-        migrateRenewHistory(ms[mi]);
-        deductTicket(ms[mi]);
-        saveM(ms);
-        const ss=loadS();
-        if(!ss[s.memberId])ss[s.memberId]=[];
-        ss[s.memberId].unshift({id:uid(),ts:endTime.getTime(),type:s.type||'기구 필라테스 (개인)',note:'(자동 완료)'});
-        saveS(ss);
+      if(mi>=0){
+        if(getTotalRemain(ms[mi])>0){
+          migrateRenewHistory(ms[mi]);
+          deductTicket(ms[mi]);
+          saveM(ms);
+          const ss=loadS();
+          if(!ss[s.memberId])ss[s.memberId]=[];
+          ss[s.memberId].unshift({id:uid(),ts:endTime.getTime(),type:s.type||'기구 필라테스 (개인)',note:'(자동 완료)'});
+          saveS(ss);
+          schs2[idx].done=true;
+          saveSch(schs2);
+        }
+        // 잔여 횟수가 0이면 자동완료 처리하지 않고 그대로 남겨둠 (수동 확인 필요)
+      }else{
+        schs2[idx].done=true;
+        saveSch(schs2);
       }
-      schs2[idx].done=true;
-      saveSch(schs2);
       // 화면 갱신
       if(document.getElementById('view-calendar').classList.contains('active'))renderCalView();
       renderDash();
@@ -3210,8 +3267,7 @@ function scheduleAutoComplete(){
 }
 
 async function bootApp(){
-  await syncFromCloud(false);   // 클라우드 데이터 먼저 받아오기 (샘플 생성/렌더링보다 우선)
-  initSample();
+  await syncFromCloud(false);   // 클라우드 데이터 먼저 받아오기
   autoCompleteSchedules();
   scheduleAutoComplete();
   renderHome();
