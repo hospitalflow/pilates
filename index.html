@@ -2784,6 +2784,9 @@ function renderDaySchedule(dateStr){
     const mem=loadM().find(x=>x.id===s.memberId);
     const r=mem?remain(mem):0;
     const done=s.done||false;
+    const nameHtml=mem
+      ?`<span onclick="event.stopPropagation();showDetail('${mem.id}')" style="text-decoration:underline;text-decoration-color:var(--bd2);cursor:pointer;">${s.memberName}</span>`
+      :s.memberName;
     return`<div style="padding:10px 0;border-bottom:1px solid var(--bd);">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer;" onclick="openScheduleModal('${dateStr}','${s.id}')">
         <div style="background:${done?'var(--grnd)':'var(--acd)'};border-radius:8px;padding:6px 8px;text-align:center;min-width:52px;flex-shrink:0;">
@@ -2791,7 +2794,7 @@ function renderDaySchedule(dateStr){
           <div style="font-size:10px;color:var(--mt);">${s.endTime||''}</div>
         </div>
         <div style="flex:1;">
-          <div style="font-size:15px;font-weight:800;">${s.memberName} ${done?'<span style="font-size:10px;color:var(--grn);">✓완료</span>':''}</div>
+          <div style="font-size:15px;font-weight:800;">${nameHtml} ${done?'<span style="font-size:10px;color:var(--grn);">✓완료</span>':''}</div>
           <div style="font-size:11px;color:var(--mt);">${s.type||''} · 잔여 ${r}회</div>
         </div>
       </div>
