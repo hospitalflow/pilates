@@ -1179,10 +1179,6 @@ async function syncFromCloud(silent){
     if(!s0){
       console.error('[Supabase] 동기화 중단: 로그인 세션이 없습니다.');
       setSyncStatus('offline');
-      const loginScreen=document.getElementById('login-screen');
-      if(loginScreen&&loginScreen.style.display!=='flex'){
-        loginScreen.style.display='flex';
-      }
       _syncing=false;
       return;
     }
