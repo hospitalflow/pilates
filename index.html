@@ -2555,8 +2555,10 @@ function showExpScreen(){
 }
 function showExpWarning(days){
   if(document.getElementById('exp-warn-banner'))return;
+  const hdr=document.querySelector('.hdr');
+  const hdrBottom=hdr?Math.ceil(hdr.getBoundingClientRect().bottom):56;
   const b=document.createElement('div');b.id='exp-warn-banner';
-  b.style.cssText='position:fixed;top:calc(56px + 8px);left:12px;right:12px;z-index:300;background:rgba(255,204,102,0.1);border:1px solid rgba(255,204,102,0.3);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--yel);display:flex;align-items:center;gap:8px;';
+  b.style.cssText='position:fixed;top:'+(hdrBottom+8)+'px;left:12px;right:12px;z-index:39;background:rgba(255,204,102,0.1);border:1px solid rgba(255,204,102,0.3);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--yel);display:flex;align-items:center;gap:8px;';
   b.innerHTML=`<span>⚠️</span><span style="flex:1;"><strong>구독 ${days}일 후 만료</strong> — 갱신하지 않으면 앱이 잠깁니다</span><button onclick="sendRenewSms()" style="background:var(--ac);border:none;color:#0f1117;font-size:11px;font-weight:700;padding:4px 9px;border-radius:6px;cursor:pointer;">갱신</button>`;
   document.body.appendChild(b);setTimeout(()=>{if(b.parentNode)b.remove();},8000);
 }
