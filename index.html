@@ -832,7 +832,30 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
     <select class="fselect" id="sch-member" onchange="onSchMemberChange()"></select>
   </div>
   <div class="frow"><label class="flabel">수업명 (회원 미선택 시 직접 입력)</label><input class="finput" id="sch-custom-name" placeholder="예: 체험 수업, 홍길동 체험"></div>
-  <div class="frow"><label class="flabel">날짜 *</label><input class="finput" id="sch-date" type="date"></div>
+  <div class="frow"><label class="flabel">날짜 *</label><input class="finput" id="sch-date" type="date" onchange="onSchDateChange()"></div>
+  <div class="frow" id="sch-recur-row">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="sch-recur" onchange="document.getElementById('sch-recur-detail').style.display=this.checked?'block':'none'" style="width:18px;height:18px;cursor:pointer;">
+      <label class="flabel" style="margin:0;cursor:pointer;" onclick="document.getElementById('sch-recur').click()">반복 등록 (고정 회원)</label>
+    </div>
+  </div>
+  <div id="sch-recur-detail" style="display:none;">
+    <div class="frow">
+      <label class="flabel">반복 주기</label>
+      <div style="display:flex;gap:8px;">
+        <button type="button" id="sch-recur-int-1" onclick="setRecurInterval(1)" style="flex:1;padding:9px;border-radius:8px;border:1px solid var(--ac);background:var(--acd);color:var(--ac);font-size:13px;font-weight:700;cursor:pointer;">매주</button>
+        <button type="button" id="sch-recur-int-2" onclick="setRecurInterval(2)" style="flex:1;padding:9px;border-radius:8px;border:1px solid var(--bd2);background:transparent;color:var(--dm);font-size:13px;font-weight:600;cursor:pointer;">2주 간격</button>
+      </div>
+    </div>
+    <div class="frow">
+      <label class="flabel">반복 요일 (여러 개 선택 가능)</label>
+      <div id="sch-recur-days" style="display:flex;gap:5px;justify-content:space-between;"></div>
+    </div>
+    <div class="frow">
+      <label class="flabel">반복 종료일</label>
+      <input class="finput" id="sch-recur-end" type="date">
+    </div>
+  </div>
 
   <!-- 드럼롤 시간 피커 -->
   <div class="frow">
@@ -2870,6 +2893,39 @@ function completeScheduleSession(schedId,memberId,type){
   alert('✅ 수업 완료! 잔여 '+remain(ms[idx])+'회');
 }
 
+// ── 반복 일정 등록 ──
+let _recurInterval=1;
+let _recurSelectedDays=new Set();
+
+function setRecurInterval(n){
+  _recurInterval=n;
+  const b1=document.getElementById('sch-recur-int-1'),b2=document.getElementById('sch-recur-int-2');
+  b1.style.background=n===1?'var(--acd)':'transparent';b1.style.borderColor=n===1?'var(--ac)':'var(--bd2)';b1.style.color=n===1?'var(--ac)':'var(--dm)';b1.style.fontWeight=n===1?'700':'600';
+  b2.style.background=n===2?'var(--acd)':'transparent';b2.style.borderColor=n===2?'var(--ac)':'var(--bd2)';b2.style.color=n===2?'var(--ac)':'var(--dm)';b2.style.fontWeight=n===2?'700':'600';
+}
+function renderRecurDaysUI(){
+  const days=['일','월','화','수','목','금','토'];
+  document.getElementById('sch-recur-days').innerHTML=days.map((d,i)=>{
+    const on=_recurSelectedDays.has(i);
+    return `<button type="button" onclick="toggleRecurDay(${i})" id="recur-day-${i}" style="flex:1;padding:8px 0;border-radius:8px;border:1px solid ${on?'var(--ac)':'var(--bd2)'};background:${on?'var(--acd)':'transparent'};color:${on?'var(--ac)':'var(--dm)'};font-size:12px;font-weight:700;cursor:pointer;">${d}</button>`;
+  }).join('');
+}
+function toggleRecurDay(i){
+  if(_recurSelectedDays.has(i))_recurSelectedDays.delete(i);else _recurSelectedDays.add(i);
+  renderRecurDaysUI();
+}
+function onSchDateChange(){
+  const dateVal=document.getElementById('sch-date').value;
+  if(!dateVal)return;
+  if(_recurSelectedDays.size===0){
+    _recurSelectedDays.add(new Date(dateVal+'T00:00:00').getDay());
+    renderRecurDaysUI();
+  }
+}
+function startOfWeek(d){
+  const r=new Date(d);r.setDate(r.getDate()-r.getDay());r.setHours(0,0,0,0);return r;
+}
+
 function openScheduleModal(date,schedId){
   const ms=loadM();
   const memberOpts=ms.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
@@ -2882,6 +2938,13 @@ function openScheduleModal(date,schedId){
   document.getElementById('sch-date').value=date||calViewSelected||localDateStr();
   initSchTime('10:00','10:50');
   document.getElementById('sch-memo').value='';
+  document.getElementById('sch-recur').checked=false;
+  document.getElementById('sch-recur-end').value='';
+  document.getElementById('sch-recur-detail').style.display='none';
+  document.getElementById('sch-recur-row').style.display='block'; // 새 일정에서만 반복 옵션 노출
+  _recurInterval=1;setRecurInterval(1);
+  _recurSelectedDays=new Set([new Date((date||calViewSelected||localDateStr())+'T00:00:00').getDay()]);
+  renderRecurDaysUI();
 
   if(schedId){
     const s=loadSch().find(x=>x.id===schedId);
@@ -2895,6 +2958,7 @@ function openScheduleModal(date,schedId){
       initSchTime(s.startTime||'10:00',s.endTime||'10:50');
       document.getElementById('sch-type').value=s.type||'기구 필라테스 (개인)';
       document.getElementById('sch-memo').value=s.memo||'';
+      document.getElementById('sch-recur-row').style.display='none'; // 기존 일정 수정시엔 반복 옵션 숨김
     }
   }
   document.getElementById('modal-schedule').classList.add('open');
@@ -2923,19 +2987,57 @@ function saveSchedule(btn){
   const startTime=document.getElementById('sch-start-time').value;
   if(!date||!startTime){alert('날짜, 시작 시간은 필수입니다.');return;}
   if(!memberId&&!customName){alert('회원을 선택하거나 수업명을 직접 입력해주세요. (예: 체험 수업)');return;}
+  const isRecur=document.getElementById('sch-recur').checked&&!document.getElementById('sch-id').value;
+  const recurEnd=document.getElementById('sch-recur-end').value;
+  if(isRecur&&!recurEnd){alert('반복 종료일을 입력해주세요.');return;}
+  if(isRecur&&_recurSelectedDays.size===0){alert('반복 요일을 최소 1개 선택해주세요.');return;}
   if(btn)btn.disabled=true;
   const ms=loadM();
   const member=ms.find(m=>m.id===memberId);
-  const id=document.getElementById('sch-id').value||uid();
+  const endTime=document.getElementById('sch-end-time').value;
+  const type=document.getElementById('sch-type').value;
+  const memo=document.getElementById('sch-memo').value.trim();
   const schs=loadSch();
+
+  if(isRecur){
+    const selectedDays=_recurSelectedDays.size?_recurSelectedDays:new Set([new Date(date+'T00:00:00').getDay()]);
+    const interval=_recurInterval||1;
+    let count=0;
+    let cur=new Date(date+'T00:00:00');
+    const end=new Date(recurEnd+'T00:00:00');
+    if(end<cur){alert('반복 종료일이 시작일보다 빠릅니다.');if(btn)btn.disabled=false;return;}
+    const startWk=startOfWeek(cur);
+    while(cur<=end){
+      if(selectedDays.has(cur.getDay())){
+        const wkDiff=Math.round((startOfWeek(cur)-startWk)/(7*86400000));
+        if(wkDiff%interval===0){
+          const dStr=cur.getFullYear()+'-'+String(cur.getMonth()+1).padStart(2,'0')+'-'+String(cur.getDate()).padStart(2,'0');
+          schs.push({
+            id:uid(), memberId, memberName:member?member.name:customName,
+            customName: member?'':customName,
+            date:dStr, startTime, endTime, type, memo, done:false,
+          });
+          count++;
+        }
+      }
+      cur.setDate(cur.getDate()+1);
+    }
+    saveSch(schs);
+    closeOv('modal-schedule');
+    if(btn)btn.disabled=false;
+    calViewSelected=date;
+    autoCompleteSchedules();
+    renderCalView();
+    alert(`✅ ${count}건의 반복 일정이 등록됐습니다.`);
+    return;
+  }
+
+  const id=document.getElementById('sch-id').value||uid();
   const idx=schs.findIndex(x=>x.id===id);
   const data={
     id, memberId, memberName:member?member.name:customName,
     customName: member?'':customName,
-    date, startTime,
-    endTime:document.getElementById('sch-end-time').value,
-    type:document.getElementById('sch-type').value,
-    memo:document.getElementById('sch-memo').value.trim(),
+    date, startTime, endTime, type, memo,
     done: idx>=0?schs[idx].done:false, // 기존 완료 상태는 수정해도 유지
   };
   if(idx>=0)schs[idx]=data;else schs.push(data);
