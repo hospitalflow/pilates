@@ -1235,9 +1235,15 @@ function refreshCurrentView(){
 
 function startPeriodicSync(){
   if(_syncTimer)clearInterval(_syncTimer);
-  _syncTimer=setInterval(()=>syncFromCloud(true),20000);
-  document.addEventListener('visibilitychange',()=>{
-    if(document.visibilityState==='visible')syncFromCloud(true);
+  _syncTimer=setInterval(async()=>{
+    await syncFromCloud(true);
+    if(autoCompleteSchedules())refreshCurrentView();
+  },20000);
+  document.addEventListener('visibilitychange',async()=>{
+    if(document.visibilityState==='visible'){
+      await syncFromCloud(true);
+      if(autoCompleteSchedules())refreshCurrentView();
+    }
   });
 }
 
@@ -2888,6 +2894,7 @@ function saveSchedule(btn){
   const member=ms.find(m=>m.id===memberId);
   const id=document.getElementById('sch-id').value||uid();
   const schs=loadSch();
+  const idx=schs.findIndex(x=>x.id===id);
   const data={
     id, memberId, memberName:member?member.name:customName,
     customName: member?'':customName,
@@ -2895,13 +2902,14 @@ function saveSchedule(btn){
     endTime:document.getElementById('sch-end-time').value,
     type:document.getElementById('sch-type').value,
     memo:document.getElementById('sch-memo').value.trim(),
+    done: idx>=0?schs[idx].done:false, // 기존 완료 상태는 수정해도 유지
   };
-  const idx=schs.findIndex(x=>x.id===id);
   if(idx>=0)schs[idx]=data;else schs.push(data);
   saveSch(schs);
   closeOv('modal-schedule');
   if(btn)btn.disabled=false;
   calViewSelected=date;
+  autoCompleteSchedules(); // 등록한 일정이 이미 지난 시간이면 바로 완료+차감 처리
   renderCalView();
 }
 
@@ -2910,11 +2918,15 @@ function deleteSchedule(){
   const sch=loadSch().find(x=>x.id===id);
   const memberId=sch?.memberId;
   const memberName=sch?.memberName||'회원';
-  if(!confirm('수업을 삭제하시겠습니까?\n삭제할 경우 '+memberName+'님의 잔여 횟수가 1회 복구됩니다.'))return;
-  if(memberId){
+  const wasDone=!!sch?.done;
+  const msg=wasDone
+    ?'수업을 삭제하시겠습니까?\n삭제할 경우 '+memberName+'님의 잔여 횟수가 1회 복구됩니다.'
+    :'수업을 삭제하시겠습니까?\n(아직 완료 처리 전이라 횟수 변동은 없습니다.)';
+  if(!confirm(msg))return;
+  if(memberId&&wasDone){
     const ms=loadM();
     const idx=ms.findIndex(x=>x.id===memberId);
-    if(idx>=0&&ms[idx].used>0){ms[idx].used-=1;saveM(ms);}
+    if(idx>=0){migrateRenewHistory(ms[idx]);restoreTicket(ms[idx]);saveM(ms);}
   }
   saveSch(loadSch().filter(x=>x.id!==id));
   closeOv('modal-schedule');
@@ -3286,6 +3298,7 @@ function autoCompleteSchedules(){
     }
   });
   if(changed)saveSch(schs);
+  return changed;
 }
 
 
