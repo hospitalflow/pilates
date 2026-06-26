@@ -1786,6 +1786,7 @@ function showDetail(id){
   const phoneBtn = m.phone ? '<button class="mc-action" onclick="callMember(\''+m.phone+'\')">📞 전화</button>' : '';
   const smsBtn = m.phone ? '<button class="mc-action" onclick="sendRenewMsg(\''+m.phone+'\',\''+m.name+'\')">✉️ 수강권 안내 문자</button>' : '';
   const todayBtn = m.phone ? '<button class="mc-action" onclick="sendTodayMsg(\''+m.phone+'\',\''+m.name+'\')">✉️ 오늘수업 알림</button>' : '';
+  const schedBtn = m.phone ? '<button class="mc-action" onclick="sendScheduleMsg(\''+m.phone+'\',\''+m.name+'\',\''+m.id+'\')">✉️ 예약 일정 안내</button>' : '';
   const typeTag = m.classtype ? '<span class="type-tag '+typeClass(m.classtype)+'">'+m.classtype+'</span>' : '';
 
   document.getElementById('det-content').innerHTML=`
@@ -1872,6 +1873,7 @@ function showDetail(id){
         ">✏️ 수정</button>
         ${smsBtn?`${smsBtn}`:''}
         ${todayBtn?`${todayBtn}`:''}
+        ${schedBtn?`${schedBtn}`:''}
       </div>
     </div>
 
@@ -3378,6 +3380,23 @@ function sendRenewMsg(phone,name){
 }
 function sendTodayMsg(phone,name){
   const msg=encodeURIComponent('안녕하세요 '+name+'님 🤸 오늘 운동 날이십니다! 잊지 말고 오세요 😊');
+  window.location.href='sms:'+phone+'?body='+msg;
+}
+function sendScheduleMsg(phone,name,memberId){
+  const now=new Date();
+  const upcoming=loadSch()
+    .filter(s=>s.memberId===memberId&&!s.done)
+    .map(s=>({...s, dt:new Date(s.date+'T'+(s.startTime||'00:00')+':00')}))
+    .filter(s=>s.dt>=new Date(now.getFullYear(),now.getMonth(),now.getDate()))
+    .sort((a,b)=>a.dt-b.dt);
+  if(!upcoming.length){alert('예정된 수업이 없습니다.');return;}
+  const days=['일','월','화','수','목','금','토'];
+  const lines=upcoming.slice(0,8).map(s=>{
+    const d=s.dt;
+    return `${d.getMonth()+1}/${d.getDate()}(${days[d.getDay()]}) ${s.startTime}`;
+  }).join('\n');
+  const more=upcoming.length>8?`\n...외 ${upcoming.length-8}건`:'';
+  const msg=encodeURIComponent(`안녕하세요 ${name}님 📅 예약된 수업 일정 안내드려요\n\n${lines}${more}\n\n참고해주세요 😊`);
   window.location.href='sms:'+phone+'?body='+msg;
 }
 function syncBirthday(){
