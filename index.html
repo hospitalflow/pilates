@@ -2788,8 +2788,38 @@ function renderCalView(){
   const startDow=first.getDay();
   const scheds=loadSch();
 
+  // 이전 달 날짜 정보 (앞쪽 빈칸을 실제 동작하는 칸으로 채우기 위함)
+  const prevMonthLastDay=new Date(calViewYear,calViewMonth,0).getDate();
+  const prevYear=calViewMonth===0?calViewYear-1:calViewYear;
+  const prevMonth=calViewMonth===0?11:calViewMonth-1;
+  // 다음 달 날짜 정보 (뒤쪽 빈칸을 실제 동작하는 칸으로 채우기 위함)
+  const nextYear=calViewMonth===11?calViewYear+1:calViewYear;
+  const nextMonth=calViewMonth===11?0:calViewMonth+1;
+
+  function renderOtherMonthCell(y,mo,d){
+    const dateStr=y+'-'+(mo+1).toString().padStart(2,'0')+'-'+d.toString().padStart(2,'0');
+    const daySchs=scheds.filter(s=>s.date===dateStr).sort((a,b)=>a.startTime.localeCompare(b.startTime));
+    const entries=daySchs.map(s=>{
+      const tc=typeClass(s.type);
+      const doneStyle=s.done?'opacity:0.5;text-decoration:line-through;':'opacity:0.65;';
+      const draggableAttr=s.done?'':`draggable="true" ondragstart="schedDragStart(event,'${s.id}')" ondragend="schedDragEnd(event)"`;
+      return`<div ${draggableAttr} onclick="event.stopPropagation();openScheduleModal('${dateStr}','${s.id}')" class="cal-entry ${tc}" style="${doneStyle}${s.done?'':'cursor:grab;'}">
+        <span class="cal-entry-time">${s.startTime}</span>
+        <span class="cal-entry-name">${s.memberName}</span>
+        <span class="cal-entry-type">${shortType(s.type)}</span>
+      </div>`;
+    }).join('');
+    return`<div onclick="calViewYear=${y};calViewMonth=${mo};calViewSelected='${dateStr}';renderCalView();" ondragover="schedDragOver(event)" ondragleave="schedDragLeave(event)" ondrop="schedDrop(event,'${dateStr}')" class="cal-cell" style="background:var(--s1);border:1px solid var(--bd);opacity:0.45;">
+      <div class="cal-daynum" style="color:var(--mt);font-weight:500;">${d}</div>
+      ${entries}
+    </div>`;
+  }
+
   let html='';
-  for(let i=0;i<startDow;i++) html+='<div></div>';
+  for(let i=0;i<startDow;i++){
+    const d=prevMonthLastDay-startDow+1+i;
+    html+=renderOtherMonthCell(prevYear,prevMonth,d);
+  }
   for(let d=1;d<=lastDay;d++){
     const dateStr=calViewYear+'-'+(calViewMonth+1).toString().padStart(2,'0')+'-'+d.toString().padStart(2,'0');
     const isToday=d===today.getDate()&&calViewMonth===today.getMonth()&&calViewYear===today.getFullYear();
@@ -2813,6 +2843,12 @@ function renderCalView(){
       <div class="cal-daynum" style="color:${textColor};font-weight:${isToday||isSel?800:500};">${d}</div>
       ${entries}
     </div>`;
+  }
+  // 다음 달 앞부분 며칠로 그리드를 7의 배수로 맞춤 (이 칸도 실제 동작함 - 클릭/드래그앤드롭 가능)
+  const totalCells=startDow+lastDay;
+  const trailing=(7-(totalCells%7))%7;
+  for(let d=1;d<=trailing;d++){
+    html+=renderOtherMonthCell(nextYear,nextMonth,d);
   }
   document.getElementById('cal-view-grid').innerHTML=html;
   renderDaySchedule(calViewSelected);
