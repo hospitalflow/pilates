@@ -2203,7 +2203,7 @@ function saveMember(btn){
     renewHistory=existing.renewHistory.slice();
     const totalDelta=total-(existing.total||0);
     const newCount=Math.max(renewHistory[0].used||0,(renewHistory[0].count||0)+totalDelta);
-    renewHistory[0]=Object.assign({},renewHistory[0],{weekly,days,count:newCount});
+    renewHistory[0]=Object.assign({},renewHistory[0],{weekly,days,count:newCount,price});
   }else{
     renewHistory=[{date:startDate,count:total,price,weekly,days}];
   }
