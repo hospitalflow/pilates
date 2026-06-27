@@ -3432,7 +3432,9 @@ function sendScheduleMsg(phone,name,memberId){
     return `${d.getMonth()+1}/${d.getDate()}(${days[d.getDay()]}) ${s.startTime}`;
   }).join('\n');
   const more=upcoming.length>8?`\n...외 ${upcoming.length-8}건`:'';
-  const msg=encodeURIComponent(`안녕하세요 ${name}님 📅 예약된 수업 일정 안내드려요\n\n${lines}${more}\n\n참고해주세요 😊`);
+  const dow=now.getDay(); // 0=일,5=금,6=토
+  const weekendGreeting=(dow===5||dow===6||dow===0)?'\n\n주말 잘 보내세요 😊':'';
+  const msg=encodeURIComponent(`안녕하세요 ${name}님 📅 예약된 수업 일정 안내드려요\n\n${lines}${more}\n\n날짜·시간 꼭 확인해주시고, 변경사항 있으시면 24시간 전에 미리 연락 부탁드려요!${weekendGreeting}`);
   window.location.href='sms:'+phone+'?body='+msg;
 }
 function syncBirthday(){
