@@ -1435,6 +1435,7 @@ window._doDelSes=function(key){
   if(curDet===info.mid)showDetail(info.mid);else renderDash();
 };
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+const withHonorific=name=>name.trim().endsWith('님')?name.trim():name.trim()+'님';
 const loadM=()=>{try{return JSON.parse(localStorage.getItem(SK))||[];}catch{return[];}};
 const saveM=a=>{localStorage.setItem(SK,JSON.stringify(a));const t=new Date().toISOString();localStorage.setItem(localUpdatedKey(SK),t);sbPush('members',a);};
 const loadS=()=>{try{return JSON.parse(localStorage.getItem(SK2))||{};}catch{return{};}};
@@ -1702,11 +1703,11 @@ function renderRecentFeed(){
   const items=[];
   ms.forEach(m=>{
     (ss[m.id]||[]).forEach(s=>{
-      items.push({ts:s.ts,ico:'✅',text:`${m.name}님 ${s.type||'수업'} 완료`});
+      items.push({ts:s.ts,ico:'✅',text:`${withHonorific(m.name)} ${s.type||'수업'} 완료`});
     });
     migrateRenewHistory(m);
     (m.renewHistory||[]).forEach(h=>{
-      items.push({ts:new Date(h.date).getTime()||0,ico:'💳',text:`${m.name}님 수강권 ${h.count}회 등록/갱신`});
+      items.push({ts:new Date(h.date).getTime()||0,ico:'💳',text:`${withHonorific(m.name)} 수강권 ${h.count}회 등록/갱신`});
     });
   });
   items.sort((a,b)=>b.ts-a.ts);
@@ -3032,6 +3033,46 @@ function saveSchedule(btn){
   if(btn)btn.disabled=true;
   const ms=loadM();
   const member=ms.find(m=>m.id===memberId);
+
+  // 잔여 횟수 체크 (회원이 선택된 경우만, 체험 등 직접입력은 체크 안 함)
+  if(member&&!document.getElementById('sch-id').value){
+    migrateRenewHistory(member);
+    const totalRemain=getTotalRemain(member);
+    // 이미 등록된 미완료 예약 수 카운트
+    const existingBookings=loadSch().filter(s=>s.memberId===memberId&&!s.done).length;
+    if(isRecur){
+      // 반복 등록시 생성될 건수 미리 계산
+      const selectedDays=_recurSelectedDays.size?_recurSelectedDays:new Set([new Date(date+'T00:00:00').getDay()]);
+      const interval=_recurInterval||1;
+      let willAdd=0;
+      let cur2=new Date(date+'T00:00:00');
+      const end2=new Date(recurEnd+'T00:00:00');
+      const startWk2=startOfWeek(cur2);
+      while(cur2<=end2){
+        if(selectedDays.has(cur2.getDay())){
+          const wkDiff=Math.round((startOfWeek(cur2)-startWk2)/(7*86400000));
+          if(wkDiff%interval===0)willAdd++;
+        }
+        cur2.setDate(cur2.getDate()+1);
+      }
+      if(existingBookings+willAdd>totalRemain){
+        if(!confirm(`잔여 횟수(${totalRemain}회)보다 예약 건수(기존 ${existingBookings}건 + 신규 ${willAdd}건 = ${existingBookings+willAdd}건)가 많습니다.\n계속 등록하시겠습니까?`)){
+          if(btn)btn.disabled=false;return;
+        }
+      }
+    }else{
+      if(totalRemain<=0){
+        alert(`${member.name}님의 잔여 횟수가 없습니다. 수강권을 먼저 추가해주세요.`);
+        if(btn)btn.disabled=false;return;
+      }
+      if(existingBookings>=totalRemain){
+        if(!confirm(`${member.name}님의 잔여 횟수(${totalRemain}회)가 이미 예약(${existingBookings}건)으로 꽉 찼습니다.\n추가로 등록하시겠습니까?`)){
+          if(btn)btn.disabled=false;return;
+        }
+      }
+    }
+  }
+
   const endTime=document.getElementById('sch-end-time').value;
   const type=document.getElementById('sch-type').value;
   const memo=document.getElementById('sch-memo').value.trim();
@@ -3177,7 +3218,7 @@ function buildNotifications(){
 
   // 잔여 3회 이하
   ms.filter(m=>remain(m)>0&&remain(m)<=3).forEach(m=>{
-    const msg=encodeURIComponent('안녕하세요 '+m.name+'님 🌸 잔여 횟수가 곧 소진돼요. 꾸준히 이어오신 만큼 다음 달도 함께해요! 편한 시간에 연락 주세요 😊');
+    const msg=encodeURIComponent('안녕하세요 '+withHonorific(m.name)+' 🌸 잔여 횟수가 곧 소진돼요. 꾸준히 이어오신 만큼 다음 달도 함께해요! 편한 시간에 연락 주세요 😊');
     items.push({
       id:'low_'+m.id,
       type:'warn',
@@ -3411,11 +3452,11 @@ function callMember(phone){
   window.location.href='tel:'+phone;
 }
 function sendRenewMsg(phone,name){
-  const msg=encodeURIComponent('안녕하세요 '+name+'님 🌸 잔여 횟수가 곧 소진돼요. 꾸준히 이어오신 만큼 다음 달도 함께해요! 편한 시간에 연락 주세요 😊');
+  const msg=encodeURIComponent('안녕하세요 '+withHonorific(name)+' 🌸 잔여 횟수가 곧 소진돼요. 꾸준히 이어오신 만큼 다음 달도 함께해요! 편한 시간에 연락 주세요 😊');
   window.location.href='sms:'+phone+'?body='+msg;
 }
 function sendTodayMsg(phone,name){
-  const msg=encodeURIComponent('안녕하세요 '+name+'님 🤸 오늘 운동 날이십니다! 잊지 말고 오세요 😊');
+  const msg=encodeURIComponent('안녕하세요 '+withHonorific(name)+' 🌿 오늘은 운동 예약일입니다! 곧 뵙기를 희망합니다 😊 활기찬 하루 되세요 ☀️');
   window.location.href='sms:'+phone+'?body='+msg;
 }
 function sendScheduleMsg(phone,name,memberId){
@@ -3434,7 +3475,7 @@ function sendScheduleMsg(phone,name,memberId){
   const more=upcoming.length>8?`\n...외 ${upcoming.length-8}건`:'';
   const dow=now.getDay(); // 0=일,5=금,6=토
   const weekendGreeting=(dow===5||dow===6||dow===0)?'\n\n주말 잘 보내세요 😊':'';
-  const msg=encodeURIComponent(`안녕하세요 ${name}님 📅 예약된 수업 일정 안내드려요\n\n${lines}${more}\n\n날짜·시간 꼭 확인해주시고, 변경사항 있으시면 24시간 전에 미리 연락 부탁드려요!${weekendGreeting}`);
+  const msg=encodeURIComponent(`안녕하세요 ${withHonorific(name)} 📅 예약된 수업 일정 안내드려요\n\n${lines}${more}\n\n날짜·시간 꼭 확인해주시고, 변경사항 있으시면 24시간 전에 미리 연락 부탁드려요!${weekendGreeting}`);
   window.location.href='sms:'+phone+'?body='+msg;
 }
 function syncBirthday(){
