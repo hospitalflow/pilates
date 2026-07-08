@@ -1930,11 +1930,12 @@ function showDetail(id){
     var remain2=getTotalRemain(m);
     var schs2=loadSch();
     var booked=schs2.filter(function(s){return s.memberId===m.id&&!s.done;}).length;
-    var cancelled=schs2.filter(function(s){return s.memberId===m.id&&s.cancelled;}).length;
+    var completed=(loadS()[m.id]||[]).length; // 실제 수업기록 기준으로 완료 건수 계산
     var h='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--bd);">';
-    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--ac);">'+remain2+'</div><div style="font-size:10px;color:var(--mt);">잔여</div></div>';
+    var netRemain=Math.max(0,remain2-booked); // 예약 차감한 실제 사용 가능 잔여
+    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--ac);">'+netRemain+'</div><div style="font-size:10px;color:var(--mt);">잔여</div></div>';
     h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--tx);">'+booked+'</div><div style="font-size:10px;color:var(--mt);">예약</div></div>';
-    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--mt);">'+m.used+'</div><div style="font-size:10px;color:var(--mt);">완료</div></div>';
+    h+='<div style="background:var(--s2);padding:12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:var(--mt);">'+completed+'</div><div style="font-size:10px;color:var(--mt);">완료</div></div>';
     h+='</div>';
     if(!myS.length){
       h+='<div style="padding:16px;text-align:center;color:var(--mt);font-size:12px;">아직 기록이 없습니다</div>';
