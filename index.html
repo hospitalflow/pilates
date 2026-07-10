@@ -3570,39 +3570,48 @@ function scheduleAutoComplete(){
   const schs=loadSch().filter(function(s){return !s.done;});
   schs.forEach(function(s){
     if(!s.date||!s.endTime)return;
-    const endParts=s.endTime.split(':');
     const endTime=new Date(s.date+'T'+s.endTime+':00');
     const msUntilEnd=endTime-now;
     if(msUntilEnd<=0)return; // 이미 지남 (autoCompleteSchedules에서 처리)
     if(msUntilEnd>24*60*60*1000)return; // 24시간 이상 남은 건 스킵
     // 종료 시간에 맞춰 타이머 설정
-    setTimeout(function(){
+    setTimeout(async function(){
       const schs2=loadSch();
       const idx=schs2.findIndex(function(x){return x.id===s.id;});
       if(idx<0||schs2[idx].done)return;
-      const ms=loadM();
-      const mi=ms.findIndex(function(x){return x.id===s.memberId;});
-      if(mi>=0){
-        if(getTotalRemain(ms[mi])>0){
-          migrateRenewHistory(ms[mi]);
-          deductTicket(ms[mi]);
-          saveM(ms);
-          const ss=loadS();
-          if(!ss[s.memberId])ss[s.memberId]=[];
-          ss[s.memberId].unshift({id:uid(),ts:endTime.getTime(),type:s.type||'기구 필라테스 (개인)',note:'(자동 완료)'});
-          saveS(ss);
-          schs2[idx].done=true;
-          saveSch(schs2);
-        }
-        // 잔여 횟수가 0이면 자동완료 처리하지 않고 그대로 남겨둠 (수동 확인 필요)
-      }else{
-        schs2[idx].done=true;
-        saveSch(schs2);
+      if(!s.memberId){
+        // 회원 없는 일정(체험 등)은 done만 처리
+        schs2[idx].done=true;saveSch(schs2);
+        if(document.getElementById('view-calendar').classList.contains('active'))renderCalView();
+        return;
       }
-      // 화면 갱신
-      if(document.getElementById('view-calendar').classList.contains('active'))renderCalView();
-      renderDash();
-      updateNotifyBadge();
+      // 서버 RPC로 차감 (중복 방지)
+      const s0=await refreshSessionIfNeeded();
+      if(!s0||!s0.user_id)return;
+      try{
+        const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
+          method:'POST',
+          headers:{'apikey':SB_KEY,'Authorization':'Bearer '+s0.access_token,'Content-Type':'application/json'},
+          body:JSON.stringify({
+            p_owner_id:s0.user_id,
+            p_schedule_id:s.id,
+            p_member_id:s.memberId,
+            p_session_type:s.type||'기구 필라테스 (개인)',
+            p_session_ts:endTime.getTime()
+          })
+        });
+        const result=await res.json();
+        if(res.ok&&(result.ok||result.skipped)){
+          await syncFromCloud(true);
+          if(document.getElementById('view-calendar').classList.contains('active'))renderCalView();
+          renderDash();
+          updateNotifyBadge();
+        }else{
+          console.error('[타이머차감] 실패:',s.id,result);
+        }
+      }catch(e){
+        console.error('[타이머차감] 네트워크 오류:',s.id,e);
+      }
     }, msUntilEnd);
   });
 }
