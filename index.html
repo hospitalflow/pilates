@@ -1262,17 +1262,13 @@ function refreshCurrentView(){
 function startPeriodicSync(){
   if(_syncTimer)clearInterval(_syncTimer);
   _syncTimer=setInterval(async()=>{
-    const prevSchUpdated=localStorage.getItem(localUpdatedKey(SK3))||'';
     await syncFromCloud(true);
-    const newSchUpdated=localStorage.getItem(localUpdatedKey(SK3))||'';
-    // 클라우드에서 더 최신 일정 데이터를 받아온 경우 — 이미 다른 기기가 처리했을 수 있으므로
-    // autoComplete는 실행하되, 중복 차감 방지 로직(alreadyRecorded)이 막아줌
-    if(autoCompleteSchedules())refreshCurrentView();
+    if(await autoCompleteSchedules())refreshCurrentView();
   },20000);
   document.addEventListener('visibilitychange',async()=>{
     if(document.visibilityState==='visible'){
       await syncFromCloud(true);
-      if(autoCompleteSchedules())refreshCurrentView();
+      if(await autoCompleteSchedules())refreshCurrentView();
     }
   });
 }
@@ -2909,31 +2905,48 @@ function renderDaySchedule(dateStr){
   </div>`;
 }
 
-function completeScheduleSession(schedId,memberId,type){
+async function completeScheduleSession(schedId,memberId,type){
   const m=loadM().find(x=>x.id===memberId);
   if(!m){alert('회원 정보를 찾을 수 없습니다.');return;}
   if(remain(m)<=0){alert(m.name+' 회원의 잔여 횟수가 0입니다.');return;}
   if(!confirm(m.name+' 님 수업을 완료 처리할까요? (잔여 '+remain(m)+'회 → '+(remain(m)-1)+'회)')){return;}
-  // 횟수 차감
-  const ms=loadM();
-  const idx=ms.findIndex(x=>x.id===memberId);
-  if(idx>=0){
-    migrateRenewHistory(ms[idx]);
-    deductTicket(ms[idx]);
-    saveM(ms);
+  const s=await refreshSessionIfNeeded();
+  if(!s||!s.user_id){alert('로그인이 필요합니다.');return;}
+  try{
+    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
+      method:'POST',
+      headers:{
+        'apikey':SB_KEY,
+        'Authorization':'Bearer '+s.access_token,
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify({
+        p_owner_id:s.user_id,
+        p_schedule_id:schedId,
+        p_member_id:memberId,
+        p_session_type:type||'기구 필라테스 (개인)',
+        p_session_ts:Date.now()
+      })
+    });
+    const result=await res.json();
+    if(!res.ok||result.ok===false){
+      console.error('[서버차감] 실패:',result);
+      alert('처리 실패: '+(result.error||'서버 오류'));
+      return;
+    }
+    if(result.skipped){
+      alert('이미 처리된 수업입니다.');
+    }else{
+      // 로컬 데이터 즉시 갱신 (서버 처리 후 동기화)
+      await syncFromCloud(true);
+      alert('✅ 수업 완료 처리됐습니다!');
+    }
+    renderCalView();
+    if(typeof renderHome==='function')renderHome();
+  }catch(e){
+    console.error('[서버차감] 네트워크 오류:',e);
+    alert('네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
   }
-  // 세션 기록 저장
-  const ss=loadS();
-  if(!ss[memberId])ss[memberId]=[];
-  const sid=uid();
-  ss[memberId].unshift({id:sid,ts:Date.now(),type:type||'기구 필라테스 (개인)',note:''});
-  saveS(ss);
-  // 일정에 완료 표시
-  const schs=loadSch();
-  const si=schs.findIndex(x=>x.id===schedId);
-  if(si>=0){schs[si].done=true;saveSch(schs);}
-  renderCalView();
-  alert('✅ 수업 완료! 잔여 '+remain(ms[idx])+'회');
 }
 
 // ── 반복 일정 등록 ──
@@ -3109,7 +3122,7 @@ function saveSchedule(btn){
     closeOv('modal-schedule');
     if(btn)btn.disabled=false;
     calViewSelected=date;
-    autoCompleteSchedules();
+    autoCompleteSchedules(); // 백그라운드 처리
     renderCalView();
     alert(`✅ ${count}건의 반복 일정이 등록됐습니다.`);
     return;
@@ -3504,49 +3517,50 @@ function quickEditMemo(id){
   showDetail(id);
 }
 // ── 지난 일정 자동 차감 ──
-function autoCompleteSchedules(){
+async function autoCompleteSchedules(){
   const now=new Date();
   const schs=loadSch();
-  let changed=false;
-  schs.forEach(function(s){
-    if(s.done)return;
-    if(!s.date)return;
+  const pending=schs.filter(function(s){
+    if(s.done||!s.date||!s.memberId)return false;
     const endTimeStr=s.endTime||s.startTime||'23:59';
     const endDt=new Date(s.date+'T'+endTimeStr+':00');
-    if(endDt>now)return;
-    const ms=loadM();
-    const idx=ms.findIndex(function(x){return x.id===s.memberId;});
-    if(idx>=0){
-      // 이미 그 시간에 수업기록이 있으면 중복 차감하지 않고 done 처리만
-      const ss=loadS();
-      const memberSessions=ss[s.memberId]||[];
-      const alreadyRecorded=memberSessions.some(function(rec){
-        return Math.abs(rec.ts-endDt.getTime())<3600000; // 1시간 이내 기록 있으면 중복으로 간주
-      });
-      if(alreadyRecorded){
-        s.done=true;
-        changed=true;
-        return;
-      }
-      if(getTotalRemain(ms[idx])>0){
-        migrateRenewHistory(ms[idx]);
-        deductTicket(ms[idx]);
-        saveM(ms); // 즉시 클라우드 push 포함 (saveM 안에 sbPush 있음)
-        if(!ss[s.memberId])ss[s.memberId]=[];
-        ss[s.memberId].unshift({id:uid(),ts:endDt.getTime(),type:s.type||'기구 필라테스 (개인)',note:'(자동 완료)'});
-        saveS(ss); // 즉시 클라우드 push 포함
-        s.done=true;
-        changed=true;
-      }
-    }else{
-      s.done=true;
-      changed=true;
-    }
+    return endDt<=now;
   });
-  if(changed){
-    saveSch(schs); // done 상태도 즉시 클라우드 push — 다른 기기가 받으면 이미 done=true라 중복 처리 안 함
+  if(!pending.length)return false;
+  const s0=await refreshSessionIfNeeded();
+  if(!s0||!s0.user_id)return false;
+  let anyChanged=false;
+  for(const s of pending){
+    try{
+      const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
+        method:'POST',
+        headers:{
+          'apikey':SB_KEY,
+          'Authorization':'Bearer '+s0.access_token,
+          'Content-Type':'application/json'
+        },
+        body:JSON.stringify({
+          p_owner_id:s0.user_id,
+          p_schedule_id:s.id,
+          p_member_id:s.memberId,
+          p_session_type:s.type||'기구 필라테스 (개인)',
+          p_session_ts:new Date(s.date+'T'+(s.endTime||s.startTime||'23:59')+':00').getTime()
+        })
+      });
+      const result=await res.json();
+      if(res.ok&&(result.ok||result.skipped)){
+        anyChanged=true;
+      }else{
+        console.error('[자동완료] 실패:',s.id,result);
+      }
+    }catch(e){
+      console.error('[자동완료] 네트워크 오류:',s.id,e);
+    }
   }
-  return changed;
+  if(anyChanged){
+    await syncFromCloud(true); // 서버 처리 후 최신 데이터 pull
+  }
+  return anyChanged;
 }
 
 
@@ -3595,7 +3609,7 @@ function scheduleAutoComplete(){
 
 async function bootApp(){
   await syncFromCloud(false);   // 클라우드 데이터 먼저 받아오기
-  autoCompleteSchedules();
+  await autoCompleteSchedules(); // 서버에서 처리 (중복 차감 방지)
   scheduleAutoComplete();
   renderHome();
   renderDash();
