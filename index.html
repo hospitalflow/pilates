@@ -206,6 +206,13 @@ body.light-mode .tab-bar{background:rgba(255,255,255,0.96);}
 .badge-yel{background:var(--yeld);color:var(--yel);}
 .badge-red{background:var(--redd);color:var(--red);}
 .badge-gray{background:var(--s3);color:var(--mt);}
+.badge-ac{background:var(--acd);color:var(--ac);}
+
+.reg-item{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 0;border-bottom:1px solid var(--bd);font-size:12px;
+}
+.reg-item:last-child{border-bottom:none;}
 
 /* ── 수업 유형 태그 ── */
 .type-tag{
@@ -1051,7 +1058,8 @@ async function doLogin(){
     }
     saveAuthSession({access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+(data.expires_in*1000),user_id:data.user&&data.user.id});
     document.getElementById('login-screen').style.display='none';
-    bootApp();
+    const okExp=await checkExpiry();
+    if(okExp)await bootApp();
   }catch(e){
     console.error('[Supabase] 로그인 네트워크 오류:',e);
     if(e.message==='TIMEOUT'){
@@ -1589,21 +1597,6 @@ function renderUnpaidList(){
 }
 
 
-function renderMonthRevenue(){
-  const el=document.getElementById('home-revenue');
-  if(!el)return;
-  const ms=loadM();
-  const now=new Date();
-  const thisMonth=now.getFullYear()+'-'+(now.getMonth()+1).toString().padStart(2,'0');
-  const monthRevenue=ms.reduce((s,m)=>(m.renewHistory||[]).filter(h=>h.date&&h.date.startsWith(thisMonth)).reduce((a,h)=>a+(h.price||0),s),0);
-  el.innerHTML=`<div class="det-card" onclick="gv('stats')" style="cursor:pointer;">
-    <div class="det-card-hdr"><div class="det-card-title">💰 이번 달 매출</div><div style="font-size:11px;color:var(--mt);">통계 보기 →</div></div>
-    <div style="padding:14px 16px;">
-      <div style="font-size:24px;font-weight:700;font-family:'DM Mono',monospace;color:var(--ac);">${monthRevenue.toLocaleString('ko-KR')}<span style="font-size:13px;color:var(--mt);font-weight:500;margin-left:3px;">원</span></div>
-    </div>
-  </div>`;
-}
-
 function renderNewRegistrations(){
   const el=document.getElementById('home-newreg');
   if(!el)return;
@@ -2041,19 +2034,21 @@ function renderTicketCard(m){
     }
     var startFmt=h.date?h.date.replace(/-/g,'.'):'-';
 
-    // 이 수강권에 해당하는 예약/완료만 카운트
+    // 이 수강권에 해당하는 예약만 카운트 (표시용)
     var ticketBooked=allSchs.filter(function(s){
       if(s.memberId!==m.id||s.done)return false;
       var st=new Date((s.date||'')+'T00:00:00').getTime();
       return st>=ticketStartTs&&st<ticketEndTs;
     }).length;
+    // 완료 건수는 표시(informational)용으로 날짜창 기준 집계
     var ticketCompleted=allSessions.filter(function(s){
       return s.ts>=ticketStartTs&&s.ts<ticketEndTs;
     }).length;
 
-    // 잔여 = 이 수강권 횟수 - 이 수강권 완료 수
+    // 잔여 = 실제 차감 필드(used) 기준. 서버 RPC/getTotalRemain과 동일한 단일 소스를 사용해
+    // 화면마다 다른 잔여 숫자가 나오는 걸 방지함 (날짜창 기준 재계산은 재등록 타이밍에 따라 어긋날 수 있음)
     var hCount=h.count||0;
-    var leftCount=Math.max(0,hCount-ticketCompleted);
+    var leftCount=Math.max(0,hCount-(h.used||0));
 
     var isDone=leftCount===0&&!isCurrent;
     var status=isDone?'완료':leftCount===0?'소진':ticketCompleted===0?'대기중':'사용중';
@@ -2302,8 +2297,13 @@ function saveMember(btn){
   if(existing&&existing.renewHistory&&existing.renewHistory.length){
     renewHistory=existing.renewHistory.slice();
     const totalDelta=total-(existing.total||0);
-    const newCount=Math.max(renewHistory[0].used||0,(renewHistory[0].count||0)+totalDelta);
-    renewHistory[0]=Object.assign({},renewHistory[0],{weekly,days,count:newCount,price});
+    // 가장 오래된 수강권이 아니라, 현재 사용 중(잔여 있는)인 수강권을 대상으로 함.
+    // 잔여가 전혀 없으면(모두 소진) 가장 최근 수강권을 대상으로 함.
+    const at=getActiveTicket(existing);
+    const targetIdx=at?at.idx:renewHistory.length-1;
+    const target=renewHistory[targetIdx];
+    const newCount=Math.max(target.used||0,(target.count||0)+totalDelta);
+    renewHistory[targetIdx]=Object.assign({},target,{weekly,days,count:newCount,price});
   }else{
     renewHistory=[{date:startDate,count:total,price,weekly,days}];
   }
@@ -2490,7 +2490,7 @@ function saveRenew(btn){
   // start는 위에서 이미 설정됨
   if(!ms[idx].renewHistory)ms[idx].renewHistory=[];
   const unpaidAmount=document.getElementById('mr-unpaid').checked?parseInt(document.getElementById('mr-unpaid-amount').value)||0:0;
-  ms[idx].renewHistory.push({date:startDate,count:addCount,used:0,price:finalPrice,days:days,weekly:weekly,payment:payment,discount:discount,trainer:trainer,paid:paid,unpaidAmount:unpaidAmount,memo:document.getElementById('mr-memo').value.trim()});
+  ms[idx].renewHistory.push({date:startDate,count:addCount,used:0,price:finalPrice,days:days,weekly:weekly,payment:payment,discount:discount,trainer:trainer,unpaidAmount:unpaidAmount,memo:document.getElementById('mr-memo').value.trim()});
   saveM(ms);closeOv('modal-renew');
   if(btn)btn.disabled=false;
   if(curDet===mid)showDetail(mid);else renderDash();
@@ -2501,7 +2501,7 @@ function doBackup(){
   const payload={members:loadM(),sessions:loadS(),schedules:loadSch(),exportedAt:new Date().toISOString()};
   const a=document.createElement('a');
   a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(payload,null,2));
-  a.download=`필라테스회원관리_백업_${new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','')}json`;
+  a.download=`필라테스회원관리_백업_${new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','')}.json`;
   a.click();
   localStorage.setItem(BK_KEY,Date.now().toString());
 }
@@ -2840,6 +2840,8 @@ function initSchTime(start,end){
 
 // ── 일정 데이터 ──
 const SK3='pilates_schedules_v1';
+// 같은 schedule_id에 대해 여러 경로(수동버튼/자동완료/타이머)가 동시에 deduct_session을 부르는 걸 막는 공유 잠금
+const _deductInFlight=new Set();
 const loadSch=()=>{try{return JSON.parse(localStorage.getItem(SK3))||[];}catch{return[];}};
 const saveSch=a=>{localStorage.setItem(SK3,JSON.stringify(a));const t=new Date().toISOString();localStorage.setItem(localUpdatedKey(SK3),t);sbPush('schedules',a);};
 
@@ -2999,7 +3001,7 @@ function renderDaySchedule(dateStr){
           <div style="font-size:11px;color:var(--mt);">${s.type||''} · 잔여 ${r}회</div>
         </div>
       </div>
-      ${!done&&mem?`<button onclick="completeScheduleSession('${s.id}','${s.memberId}','${s.type||''}')" style="width:100%;padding:7px;border-radius:8px;background:var(--ac);border:none;color:#0f1117;font-size:12px;font-weight:700;cursor:pointer;">✅ 수업 완료 (-1회)</button>`:''}
+      ${!done&&mem?`<button onclick="completeScheduleSession('${s.id}','${s.memberId}','${s.type||''}',this)" style="width:100%;padding:7px;border-radius:8px;background:var(--ac);border:none;color:#0f1117;font-size:12px;font-weight:700;cursor:pointer;">✅ 수업 완료 (-1회)</button>`:''}
     </div>`;
   }).join('');
 
@@ -3012,13 +3014,17 @@ function renderDaySchedule(dateStr){
   </div>`;
 }
 
-async function completeScheduleSession(schedId,memberId,type){
+async function completeScheduleSession(schedId,memberId,type,btn){
   const m=loadM().find(x=>x.id===memberId);
   if(!m){alert('회원 정보를 찾을 수 없습니다.');return;}
   if(remain(m)<=0){alert(m.name+' 회원의 잔여 횟수가 0입니다.');return;}
+  if(_deductInFlight.has(schedId)){alert('처리 중입니다. 잠시만 기다려주세요.');return;}
   if(!confirm(m.name+' 님 수업을 완료 처리할까요? (잔여 '+remain(m)+'회 → '+(remain(m)-1)+'회)')){return;}
+  if(_deductInFlight.has(schedId)){alert('처리 중입니다. 잠시만 기다려주세요.');return;}
+  _deductInFlight.add(schedId);
+  if(btn)btn.disabled=true;
   const s=await refreshSessionIfNeeded();
-  if(!s||!s.user_id){alert('로그인이 필요합니다.');return;}
+  if(!s||!s.user_id){alert('로그인이 필요합니다.');_deductInFlight.delete(schedId);if(btn)btn.disabled=false;return;}
   try{
     const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
       method:'POST',
@@ -3053,6 +3059,9 @@ async function completeScheduleSession(schedId,memberId,type){
   }catch(e){
     console.error('[서버차감] 네트워크 오류:',e);
     alert('네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  }finally{
+    _deductInFlight.delete(schedId);
+    if(btn)btn.disabled=false;
   }
 }
 
@@ -3638,6 +3647,8 @@ async function autoCompleteSchedules(){
   if(!s0||!s0.user_id)return false;
   let anyChanged=false;
   for(const s of pending){
+    if(_deductInFlight.has(s.id))continue; // 다른 경로(수동버튼/타이머)가 이미 처리 중이면 건너뜀
+    _deductInFlight.add(s.id);
     try{
       const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
         method:'POST',
@@ -3662,6 +3673,8 @@ async function autoCompleteSchedules(){
       }
     }catch(e){
       console.error('[자동완료] 네트워크 오류:',s.id,e);
+    }finally{
+      _deductInFlight.delete(s.id);
     }
   }
   if(anyChanged){
@@ -3693,8 +3706,10 @@ function scheduleAutoComplete(){
         return;
       }
       // 서버 RPC로 차감 (중복 방지)
+      if(_deductInFlight.has(s.id))return; // 다른 경로가 이미 처리 중
+      _deductInFlight.add(s.id);
       const s0=await refreshSessionIfNeeded();
-      if(!s0||!s0.user_id)return;
+      if(!s0||!s0.user_id){_deductInFlight.delete(s.id);return;}
       try{
         const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
           method:'POST',
@@ -3718,6 +3733,8 @@ function scheduleAutoComplete(){
         }
       }catch(e){
         console.error('[타이머차감] 네트워크 오류:',s.id,e);
+      }finally{
+        _deductInFlight.delete(s.id);
       }
     }, msUntilEnd);
   });
