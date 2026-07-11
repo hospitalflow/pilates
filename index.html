@@ -1160,8 +1160,8 @@ async function refreshSessionIfNeeded(){
 
 async function sbPush(key,value){
   const s=await refreshSessionIfNeeded();
-  if(!s){setSyncStatus('offline');return false;}
-  if(!s.user_id){console.error('[Supabase] push 실패: 사용자 식별값이 없습니다.');setSyncStatus('error');return false;}
+  if(!s){setSyncStatus('offline');return null;}
+  if(!s.user_id){console.error('[Supabase] push 실패: 사용자 식별값이 없습니다.');setSyncStatus('error');return null;}
   try{
     const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=owner_id,key',{
       method:'POST',
@@ -1169,20 +1169,29 @@ async function sbPush(key,value){
         'apikey':SB_KEY,
         'Authorization':'Bearer '+s.access_token,
         'Content-Type':'application/json',
-        'Prefer':'resolution=merge-duplicates,return=minimal'
+        'Prefer':'resolution=merge-duplicates,return=representation'
       },
       body:JSON.stringify({key:key,owner_id:s.user_id,data:value,updated_at:new Date().toISOString()})
     });
     if(!res.ok){
       const errBody=await res.text().catch(()=>'');
       console.error('[Supabase] push 실패:',key,res.status,errBody);
+      setSyncStatus('error');
+      return null;
     }
-    setSyncStatus(res.ok?'synced':'error');
-    return res.ok;
+    setSyncStatus('synced');
+    // 기기 자신의 시계가 아니라, 서버가 실제로 확정한 updated_at을 받아서 반환
+    // (기기 간 시계 오차로 동기화가 누락되는 문제 방지)
+    let serverTs=null;
+    try{
+      const arr=await res.json();
+      serverTs=(arr&&arr[0]&&arr[0].updated_at)||null;
+    }catch(e){/* return=representation 응답 파싱 실패 시 null 유지 */}
+    return serverTs;
   }catch(e){
     console.error('[Supabase] push 네트워크 오류:',key,e);
     setSyncStatus('offline');
-    return false;
+    return null;
   }
 }
 
@@ -1453,9 +1462,20 @@ window._doDelSes=function(key){
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 const withHonorific=name=>name.trim().endsWith('님')?name.trim():name.trim()+'님';
 const loadM=()=>{try{return JSON.parse(localStorage.getItem(SK))||[];}catch{return[];}};
-const saveM=a=>{localStorage.setItem(SK,JSON.stringify(a));const t=new Date().toISOString();localStorage.setItem(localUpdatedKey(SK),t);sbPush('members',a);};
+const saveM=a=>{
+  localStorage.setItem(SK,JSON.stringify(a));
+  sbPush('members',a).then(function(serverTs){
+    // 서버가 확정한 시각으로 갱신 (기기 시계 오차로 인한 동기화 누락 방지). 실패 시(null) lu는 건드리지 않음
+    if(serverTs)localStorage.setItem(localUpdatedKey(SK),serverTs);
+  });
+};
 const loadS=()=>{try{return JSON.parse(localStorage.getItem(SK2))||{};}catch{return{};}};
-const saveS=o=>{localStorage.setItem(SK2,JSON.stringify(o));const t=new Date().toISOString();localStorage.setItem(localUpdatedKey(SK2),t);sbPush('sessions',o);};
+const saveS=o=>{
+  localStorage.setItem(SK2,JSON.stringify(o));
+  sbPush('sessions',o).then(function(serverTs){
+    if(serverTs)localStorage.setItem(localUpdatedKey(SK2),serverTs);
+  });
+};
 
 function initSample(){
   if(loadM().length>0) return;
@@ -2198,7 +2218,9 @@ function editTicket(mid, ticketIdx){
   document.getElementById('mr-mid').value=mid;
   document.getElementById('mr-sub').textContent=ms[mi].name+' 회원 · 수강권 수정';
   document.getElementById('mr-total').value=h.count||'';
-  document.getElementById('mr-price').value=h.price||'';
+  // rawPrice가 저장돼 있으면 그대로, 없는 예전 데이터는 discount%로 원가를 역산해서 추정
+  var estRawPrice=h.rawPrice!=null?h.rawPrice:(h.discount?Math.round((h.price||0)/(1-h.discount/100)):h.price);
+  document.getElementById('mr-price').value=estRawPrice||'';
   document.getElementById('mr-weekly').value=h.weekly||2;
   mrDaysManual=true;
   document.getElementById('mr-days').value=h.days||90;
@@ -2549,6 +2571,7 @@ function saveRenew(btn){
     // renewHistory 업데이트
     h.count=newCount;
     h.price=finalPrice;
+    h.rawPrice=price; // 할인 전 원가를 별도 보관 (재수정 시 할인 중복적용 방지용)
     h.weekly=parseInt(document.getElementById('mr-weekly').value)||2;
     h.days=parseInt(document.getElementById('mr-days').value)||90;
     h.date=document.getElementById('mr-start').value||localDateStr();
@@ -2588,7 +2611,7 @@ function saveRenew(btn){
   // start는 위에서 이미 설정됨
   if(!ms[idx].renewHistory)ms[idx].renewHistory=[];
   const unpaidAmount=document.getElementById('mr-unpaid').checked?parseInt(document.getElementById('mr-unpaid-amount').value)||0:0;
-  ms[idx].renewHistory.push({date:startDate,count:addCount,used:0,price:finalPrice,days:days,weekly:weekly,payment:payment,discount:discount,trainer:trainer,unpaidAmount:unpaidAmount,memo:document.getElementById('mr-memo').value.trim()});
+  ms[idx].renewHistory.push({date:startDate,count:addCount,used:0,price:finalPrice,rawPrice:price,days:days,weekly:weekly,payment:payment,discount:discount,trainer:trainer,unpaidAmount:unpaidAmount,memo:document.getElementById('mr-memo').value.trim()});
   saveM(ms);closeOv('modal-renew');
   if(btn)btn.disabled=false;
   if(curDet===mid)showDetail(mid);else renderDash();
@@ -2941,7 +2964,12 @@ const SK3='pilates_schedules_v1';
 // 같은 schedule_id에 대해 여러 경로(수동버튼/자동완료/타이머)가 동시에 deduct_session을 부르는 걸 막는 공유 잠금
 const _deductInFlight=new Set();
 const loadSch=()=>{try{return JSON.parse(localStorage.getItem(SK3))||[];}catch{return[];}};
-const saveSch=a=>{localStorage.setItem(SK3,JSON.stringify(a));const t=new Date().toISOString();localStorage.setItem(localUpdatedKey(SK3),t);sbPush('schedules',a);};
+const saveSch=a=>{
+  localStorage.setItem(SK3,JSON.stringify(a));
+  sbPush('schedules',a).then(function(serverTs){
+    if(serverTs)localStorage.setItem(localUpdatedKey(SK3),serverTs);
+  });
+};
 
 // ── 캘린더 뷰 ──
 let calViewYear=new Date().getFullYear();
