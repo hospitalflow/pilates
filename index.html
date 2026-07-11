@@ -467,6 +467,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   </div>
   <div class="hdr-right">
     <span id="sync-status" onclick="syncFromCloud(false)" style="font-size:15px;cursor:pointer;padding:4px;flex-shrink:0;" title="동기화 상태 (클릭하여 새로고침)">☁️</span>
+    <button class="hdr-btn" onclick="forceFullResync()" title="이 기기의 동기화 기록을 초기화하고 서버 데이터를 전체 다시 받아옵니다">🔄<span class="hdr-btn-label"> 재동기화</span></button>
     <button class="hdr-btn" onclick="doLogout()" title="로그아웃" style="font-size:14px;padding:7px 9px;">🚪</button>
     <button class="hdr-btn" onclick="openAccountModal()" title="비밀번호 변경" style="font-size:14px;padding:7px 9px;">🔑</button>
     <button class="hdr-btn" id="theme-toggle-btn" onclick="toggleTheme()" style="font-size:16px;padding:7px 10px;" title="다크/라이트 전환">☀️</button>
@@ -1273,6 +1274,18 @@ async function syncFromCloud(silent){
     setSyncStatus('offline');
   }
   _syncing=false;
+}
+
+async function forceFullResync(){
+  if(!confirm('이 기기의 동기화 기록을 초기화하고 서버에서 전체 데이터를 다시 받아올까요?\n(서버 데이터는 바뀌지 않고, 이 기기의 화면만 새로고침됩니다)'))return;
+  setSyncStatus('syncing');
+  // 이 기기가 "이미 최신"이라고 착각하고 있던 기록을 지워서, 다음 pull 때 서버 데이터를 무조건 받아오게 함
+  localStorage.removeItem(localUpdatedKey(SK));
+  localStorage.removeItem(localUpdatedKey(SK2));
+  localStorage.removeItem(localUpdatedKey(SK3));
+  await syncFromCloud(false);
+  refreshCurrentView();
+  alert('✅ 재동기화 완료! 서버 데이터로 새로고침됐습니다.');
 }
 
 function refreshCurrentView(){
