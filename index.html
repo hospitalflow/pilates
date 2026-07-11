@@ -1209,9 +1209,15 @@ async function sbPush(key,value){
   }
 }
 
+// 반환값 규약:
+//  - 데이터 있음: {data, updated_at}
+//  - 클라우드에 해당 key가 진짜 없음(첫 실행): {empty:true}
+//  - 네트워크/권한 오류로 확인 불가: {error:true}
+// ※ "없음"과 "오류"를 구분하는 것이 핵심. 오류를 "없음"으로 오인해
+//    빈 로컬 데이터를 서버에 push하면 전체 데이터가 소실될 수 있음.
 async function sbPull(key){
   const s=await refreshSessionIfNeeded();
-  if(!s)return null;
+  if(!s)return {error:true};
   try{
     const res=await fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?key=eq.'+key+'&select=data,updated_at',{
       headers:{'apikey':SB_KEY,'Authorization':'Bearer '+s.access_token}
@@ -1219,17 +1225,26 @@ async function sbPull(key){
     if(!res.ok){
       const errBody=await res.text().catch(()=>'');
       console.error('[Supabase] pull 실패:',key,res.status,errBody);
-      return null;
+      return {error:true};
     }
     const arr=await res.json();
-    return arr&&arr[0]?arr[0]:null;
+    return arr&&arr[0]?arr[0]:{empty:true};
   }catch(e){
     console.error('[Supabase] pull 네트워크 오류:',key,e);
-    return null;
+    return {error:true};
   }
 }
 
 function localUpdatedKey(k){return k+'_synced_at';}
+
+// ── 미전송 변경(dirty) 표시 ──
+// push 실패(오프라인 등) 시 dirty로 표시해 두고,
+// 다음 동기화 때 클라우드 데이터로 로컬을 덮어쓰기 전에 push를 먼저 재시도함.
+// (오프라인 중 수정한 내용이 조용히 사라지는 문제 방지)
+function dirtyKey(k){return k+'_dirty';}
+function markDirty(k){localStorage.setItem(dirtyKey(k),'1');}
+function clearDirty(k){localStorage.removeItem(dirtyKey(k));}
+function isDirty(k){return localStorage.getItem(dirtyKey(k))==='1';}
 
 async function syncFromCloud(silent){
   if(_syncing)return;
@@ -1243,9 +1258,18 @@ async function syncFromCloud(silent){
       _syncing=false;
       return;
     }
+    // 0) 미전송 로컬 변경(dirty)이 있으면 pull로 덮어쓰기 전에 push부터 재시도
+    const dirtyPairs=[[SK,'members',loadM],[SK2,'sessions',loadS],[SK3,'schedules',loadSch]];
+    for(const [lk,rk,loader] of dirtyPairs){
+      if(isDirty(lk)){
+        const ts=await sbPush(rk,loader());
+        if(ts){localStorage.setItem(localUpdatedKey(lk),ts);clearDirty(lk);}
+      }
+    }
     const [mem,ses,sch]=await Promise.all([sbPull('members'),sbPull('sessions'),sbPull('schedules')]);
     let changed=false;
-    if(mem){
+    // dirty가 여전히 남아있으면(재전송도 실패) 클라우드 데이터로 로컬을 덮어쓰지 않음
+    if(mem&&mem.updated_at&&!isDirty(SK)){
       const lu=localStorage.getItem(localUpdatedKey(SK))||'';
       if(mem.updated_at>lu){
         localStorage.setItem(SK,JSON.stringify(mem.data));
@@ -1253,7 +1277,7 @@ async function syncFromCloud(silent){
         changed=true;
       }
     }
-    if(ses){
+    if(ses&&ses.updated_at&&!isDirty(SK2)){
       const lu=localStorage.getItem(localUpdatedKey(SK2))||'';
       if(ses.updated_at>lu){
         localStorage.setItem(SK2,JSON.stringify(ses.data));
@@ -1261,7 +1285,7 @@ async function syncFromCloud(silent){
         changed=true;
       }
     }
-    if(sch){
+    if(sch&&sch.updated_at&&!isDirty(SK3)){
       const lu=localStorage.getItem(localUpdatedKey(SK3))||'';
       if(sch.updated_at>lu){
         localStorage.setItem(SK3,JSON.stringify(sch.data));
@@ -1271,17 +1295,19 @@ async function syncFromCloud(silent){
     }
     // 클라우드에서 내려온 회원 데이터(잔여횟수)도 최신이면 로컬 autoComplete를 막기 위해
     // 동기화 후 autoComplete는 changed 여부와 무관하게 클라우드 기준으로 판단
-    if(!mem&&!ses&&!sch){
+    if(mem.error&&ses.error&&sch.error){
       console.error('[Supabase] 세 항목 모두 가져오기 실패 - 네트워크 또는 권한 문제 가능성. Network 탭에서 supabase 요청의 상태코드를 확인하세요.');
       setSyncStatus('error');
     }else{
       setSyncStatus('synced');
     }
     if(changed&&typeof refreshCurrentView==='function')refreshCurrentView();
-    // 클라우드에 아직 데이터가 없으면(첫 실행) 현재 로컬 데이터로 초기화
-    if(!mem)sbPush('members',loadM());
-    if(!ses)sbPush('sessions',loadS());
-    if(!sch)sbPush('schedules',loadSch());
+    // 클라우드에 해당 key가 "확실히 없는"(첫 실행) 경우에만 현재 로컬 데이터로 초기화.
+    // ※ 오류(error)일 때 push하면 빈 로컬 데이터가 서버를 덮어써
+    //    전 기기 데이터가 소실될 수 있으므로 절대 push하지 않음.
+    if(mem.empty)sbPush('members',loadM());
+    if(ses.empty)sbPush('sessions',loadS());
+    if(sch.empty)sbPush('schedules',loadSch());
   }catch(e){
     console.error('[Supabase] 동기화 중 예외 발생:',e);
     setSyncStatus('offline');
@@ -1296,6 +1322,8 @@ async function forceFullResync(){
   localStorage.removeItem(localUpdatedKey(SK));
   localStorage.removeItem(localUpdatedKey(SK2));
   localStorage.removeItem(localUpdatedKey(SK3));
+  // 강제 재동기화는 "서버 데이터를 받아오겠다"는 명시적 의사이므로 미전송 표시도 해제
+  clearDirty(SK);clearDirty(SK2);clearDirty(SK3);
   await syncFromCloud(false);
   refreshCurrentView();
   alert('✅ 재동기화 완료! 서버 데이터로 새로고침됐습니다.');
@@ -1497,10 +1525,13 @@ function localDateStr(d){
   return d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0')+'-'+d.getDate().toString().padStart(2,'0');
 }
 var _sesDelMap={};  // 삭제용 전역 맵
-window._doDelSes=function(key){
+window._doDelSes=async function(key){
   var info=_sesDelMap[key];
   if(!info)return;
   if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
+  // 다른 기기/서버 자동완료가 방금 추가한 세션이 로컬에 없는 상태로
+  // 전체 blob을 push하면 그 세션까지 사라지므로, 삭제 전 최신 데이터를 먼저 받아옴
+  await syncFromCloud(true);
   var ss=loadS();
   if(!ss[info.mid])return;
   var before=ss[info.mid].length;
@@ -1521,16 +1552,18 @@ const withHonorific=name=>name.trim().endsWith('님')?name.trim():name.trim()+'�
 const loadM=()=>{try{return JSON.parse(localStorage.getItem(SK))||[];}catch{return[];}};
 const saveM=a=>{
   localStorage.setItem(SK,JSON.stringify(a));
+  markDirty(SK); // push 성공 확인 전까지 "미전송 변경 있음"으로 표시
   sbPush('members',a).then(function(serverTs){
     // 서버가 확정한 시각으로 갱신 (기기 시계 오차로 인한 동기화 누락 방지). 실패 시(null) lu는 건드리지 않음
-    if(serverTs)localStorage.setItem(localUpdatedKey(SK),serverTs);
+    if(serverTs){localStorage.setItem(localUpdatedKey(SK),serverTs);clearDirty(SK);}
   });
 };
 const loadS=()=>{try{return JSON.parse(localStorage.getItem(SK2))||{};}catch{return{};}};
 const saveS=o=>{
   localStorage.setItem(SK2,JSON.stringify(o));
+  markDirty(SK2);
   sbPush('sessions',o).then(function(serverTs){
-    if(serverTs)localStorage.setItem(localUpdatedKey(SK2),serverTs);
+    if(serverTs){localStorage.setItem(localUpdatedKey(SK2),serverTs);clearDirty(SK2);}
   });
 };
 
@@ -2573,8 +2606,9 @@ async function saveSession(btn){
     if(btn)btn.disabled=false;
   }
 }
-window.delSes=function(mid,sid){
+window.delSes=async function(mid,sid){
   if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
+  await syncFromCloud(true); // 삭제 전 최신 데이터 확보 (blob 덮어쓰기로 인한 타 세션 유실 방지)
   var ss=loadS();
   if(!ss[mid])return;
   var before=ss[mid].length;
@@ -2591,8 +2625,9 @@ window.delSes=function(mid,sid){
   if(curDet===mid)showDetail(mid);else renderDash();
 };
 
-function deleteSession(mid,sid){
+async function deleteSession(mid,sid){
   if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
+  await syncFromCloud(true); // 삭제 전 최신 데이터 확보
   var ss=loadS();
   if(!ss[mid])return;
   var before=ss[mid].length;
@@ -3073,8 +3108,9 @@ const _deductInFlight=new Set();
 const loadSch=()=>{try{return JSON.parse(localStorage.getItem(SK3))||[];}catch{return[];}};
 const saveSch=a=>{
   localStorage.setItem(SK3,JSON.stringify(a));
+  markDirty(SK3);
   sbPush('schedules',a).then(function(serverTs){
-    if(serverTs)localStorage.setItem(localUpdatedKey(SK3),serverTs);
+    if(serverTs){localStorage.setItem(localUpdatedKey(SK3),serverTs);clearDirty(SK3);}
   });
 };
 
@@ -3494,8 +3530,11 @@ function saveSchedule(btn){
   renderCalView();
 }
 
-function deleteSchedule(){
+async function deleteSchedule(){
   const id=document.getElementById('sch-id').value;if(!id)return;
+  // 서버 자동완료가 방금 done 처리했는데 로컬이 아직 모르는 상태로 삭제하면
+  // 수업기록만 고아로 남아 잔여가 영구 차감되므로, 최신 상태를 먼저 받아옴
+  await syncFromCloud(true);
   const sch=loadSch().find(x=>x.id===id);
   const memberId=sch?.memberId;
   const memberName=sch?.memberName||'회원';
