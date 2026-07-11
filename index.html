@@ -2352,22 +2352,58 @@ function openSessionModal(mid){
   document.getElementById('time-popup').style.display='none';
   document.getElementById('modal-session').classList.add('open');
 }
-function saveSession(btn){
+async function saveSession(btn){
   if(btn&&btn.disabled)return;
   const mid=document.getElementById('ms-mid').value;
   const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
+  const lockKey='manual_'+mid;
+  if(_deductInFlight.has(lockKey)){alert('처리 중입니다. 잠시만 기다려주세요.');return;}
+  _deductInFlight.add(lockKey);
   if(btn)btn.disabled=true;
-  migrateRenewHistory(ms[idx]);deductTicket(ms[idx]);saveM(ms);
   const msDate=document.getElementById('ms-date').value;
   const msTime=document.getElementById('ms-time').value||'10:00';
   const msTsRaw=msDate?new Date(msDate+'T'+msTime+':00').getTime():Date.now();
   const msTs=isNaN(msTsRaw)?Date.now():msTsRaw;
-  const ss=loadS();if(!ss[mid])ss[mid]=[];
-  const sid=uid();
-  ss[mid].unshift({id:sid,ts:msTs,type:document.getElementById('ms-type').value,note:document.getElementById('ms-note').value.trim()});
-  saveS(ss);closeOv('modal-session');
-  if(btn)btn.disabled=false;
-  if(curDet===mid)showDetail(mid);else renderDash();
+  const msType=document.getElementById('ms-type').value;
+  const msNote=document.getElementById('ms-note').value.trim();
+  try{
+    const s=await refreshSessionIfNeeded();
+    if(!s||!s.user_id){alert('로그인이 필요합니다.');return;}
+    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session_manual',{
+      method:'POST',
+      headers:{
+        'apikey':SB_KEY,
+        'Authorization':'Bearer '+s.access_token,
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify({
+        p_owner_id:s.user_id,
+        p_member_id:mid,
+        p_session_type:msType,
+        p_session_ts:msTs,
+        p_note:msNote
+      })
+    });
+    const result=await res.json();
+    if(!res.ok||result.ok===false){
+      console.error('[수동차감] 실패:',result);
+      if(result.error==='no remaining sessions'){
+        alert('잔여 횟수가 없어 수업을 기록할 수 없습니다.\n수강권을 먼저 추가해주세요.');
+      }else{
+        alert('처리 실패: '+(result.error||'서버 오류'));
+      }
+      return;
+    }
+    await syncFromCloud(true);
+    closeOv('modal-session');
+    if(curDet===mid)showDetail(mid);else renderDash();
+  }catch(e){
+    console.error('[수동차감] 네트워크 오류:',e);
+    alert('네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  }finally{
+    _deductInFlight.delete(lockKey);
+    if(btn)btn.disabled=false;
+  }
 }
 window.delSes=function(mid,sid){
   if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
