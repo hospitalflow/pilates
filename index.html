@@ -691,6 +691,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="modal-title" id="ms-title">수업 완료</div>
   <div class="modal-sub" id="ms-sub">횟수가 1회 차감됩니다</div>
   <input type="hidden" id="ms-mid">
+  <input type="hidden" id="ms-sid">
   <div class="frow">
     <label class="flabel">수업 날짜 &amp; 시간</label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
@@ -766,7 +767,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="frow"><label class="flabel">수업 노트</label><textarea class="ftextarea" id="ms-note" placeholder="오늘 집중한 동작, 자세 교정 포인트, 다음 수업 계획 등"></textarea></div>
   <div class="modal-footer">
     <button class="btn-cancel" onclick="closeOv('modal-session')">취소</button>
-    <button class="btn-save" onclick="saveSession(this)">저장 (-1회)</button>
+    <button class="btn-save" id="ms-save-btn" onclick="saveSession(this)">저장 (-1회)</button>
   </div>
 </div>
 </div>
@@ -1974,7 +1975,7 @@ function showDetail(id){
           h+='<div class="det-row"><span class="det-key">수업 유형</span><span class="type-tag '+typeClass(s.type)+'">'+s.type+'</span></div>';
           h+='<div class="det-row"><span class="det-key">수업 후 잔여</span><span style="font-weight:600;color:'+(rem<=3?'var(--red)':'var(--tx)')+';">'+rem+'회</span></div>';
           if(s.note)h+='<div class="det-row"><span class="det-key">노트</span><span style="color:var(--dm);">'+s.note+'</span></div>';
-          h+='<div style="display:flex;justify-content:flex-end;padding:8px 0;"><button class="ses-del" data-key="'+key+'" style="background:var(--redd);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;position:relative;z-index:10;">🗑 삭제</button></div>';
+          h+='<div style="display:flex;justify-content:flex-end;gap:6px;padding:8px 0;"><button class="ses-edit" data-mid="'+m.id+'" data-sid="'+sid+'" style="background:var(--acd);border:1px solid var(--ac);color:var(--ac);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;position:relative;z-index:10;">✏️ 수정</button><button class="ses-del" data-key="'+key+'" style="background:var(--redd);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;position:relative;z-index:10;">🗑 삭제</button></div>';
         });
         h+='</div>';
       });
@@ -1982,6 +1983,12 @@ function showDetail(id){
     var area=document.getElementById('ses-list-area');
     if(area)area.innerHTML=h;
     area.addEventListener('click',function(e){
+      var editBtn=e.target.closest('.ses-edit');
+      if(editBtn){
+        e.stopPropagation();e.preventDefault();
+        editSessionRecord(editBtn.getAttribute('data-mid'),editBtn.getAttribute('data-sid'));
+        return;
+      }
       var btn=e.target.closest('.ses-del');
       if(!btn)return;
       e.stopPropagation();
@@ -2230,7 +2237,10 @@ function renderHistory(){
     :`<div class="empty"><div class="empty-ico">📋</div>이력이 없습니다</div>`;
 }
 
-function closeOv(id){document.getElementById(id).classList.remove('open');}
+function closeOv(id){
+  document.getElementById(id).classList.remove('open');
+  if(id==='modal-renew')delete document.getElementById('modal-renew').dataset.editIdx;
+}
 function closeOvOut(e,id){if(e.target===document.getElementById(id))closeOv(id);}
 
 function openAddModal(){
@@ -2329,6 +2339,8 @@ function openSessionModal(mid){
   const m=loadM().find(x=>x.id===mid);if(!m)return;
   if(remain(m)<=0){alert(`${m.name} 회원의 잔여 횟수가 0입니다.\n수강권 추가 후 수업을 기록해주세요.`);openRenewModal(mid);return;}
   document.getElementById('ms-mid').value=mid;
+  document.getElementById('ms-sid').value='';
+  document.getElementById('ms-save-btn').textContent='저장 (-1회)';
   document.getElementById('ms-title').textContent=`${m.name} — 수업 완료`;
   document.getElementById('ms-sub').textContent=`잔여 ${remain(m)}회 → ${remain(m)-1}회로 변경됩니다`;
   document.getElementById('ms-note').value='';
@@ -2352,20 +2364,65 @@ function openSessionModal(mid){
   document.getElementById('time-popup').style.display='none';
   document.getElementById('modal-session').classList.add('open');
 }
+
+function editSessionRecord(mid,sid){
+  const m=loadM().find(x=>x.id===mid);if(!m)return;
+  const ss=loadS();
+  const list=ss[mid]||[];
+  const s=list.find(function(x){return(x.id?x.id:('_'+x.ts))===sid;});
+  if(!s){alert('기록을 찾을 수 없습니다.');return;}
+  document.getElementById('ms-mid').value=mid;
+  document.getElementById('ms-sid').value=sid;
+  document.getElementById('ms-save-btn').textContent='수정 저장';
+  document.getElementById('ms-title').textContent=`${m.name} — 수업기록 수정`;
+  document.getElementById('ms-sub').textContent='날짜·시간·유형·노트만 수정됩니다 (횟수 변동 없음)';
+  document.getElementById('ms-note').value=s.note||'';
+  document.getElementById('ms-type').value=s.type||(m.classtype||'기구 필라테스 (개인)');
+  const d=new Date(s.ts);
+  const days=['일','월','화','수','목','금','토'];
+  const dateStr=localDateStr(d);
+  document.getElementById('ms-date').value=dateStr;
+  document.getElementById('ms-date-txt').textContent=`${d.getMonth()+1}/${d.getDate()} (${days[d.getDay()]})`;
+  document.getElementById('ms-date-display').style.color='var(--tx)';
+  calYear=d.getFullYear();calMonth=d.getMonth();
+  tH=d.getHours();tM=d.getMinutes();
+  updateTimeDisplay();
+  document.getElementById('cal-popup').style.display='none';
+  document.getElementById('time-popup').style.display='none';
+  document.getElementById('modal-session').classList.add('open');
+}
 async function saveSession(btn){
   if(btn&&btn.disabled)return;
   const mid=document.getElementById('ms-mid').value;
+  const sid=document.getElementById('ms-sid').value;
   const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
-  const lockKey='manual_'+mid;
-  if(_deductInFlight.has(lockKey)){alert('처리 중입니다. 잠시만 기다려주세요.');return;}
-  _deductInFlight.add(lockKey);
-  if(btn)btn.disabled=true;
   const msDate=document.getElementById('ms-date').value;
   const msTime=document.getElementById('ms-time').value||'10:00';
   const msTsRaw=msDate?new Date(msDate+'T'+msTime+':00').getTime():Date.now();
   const msTs=isNaN(msTsRaw)?Date.now():msTsRaw;
   const msType=document.getElementById('ms-type').value;
   const msNote=document.getElementById('ms-note').value.trim();
+
+  // 수정 모드: 횟수 변동 없이 날짜/시간/유형/노트만 갱신
+  if(sid){
+    if(btn)btn.disabled=true;
+    const ss=loadS();
+    const list=ss[mid]||[];
+    const i=list.findIndex(function(x){return(x.id?x.id:('_'+x.ts))===sid;});
+    if(i<0){alert('기록을 찾을 수 없습니다.');if(btn)btn.disabled=false;return;}
+    list[i]=Object.assign({},list[i],{ts:msTs,type:msType,note:msNote});
+    ss[mid]=list;
+    saveS(ss);
+    closeOv('modal-session');
+    if(btn)btn.disabled=false;
+    if(curDet===mid)showDetail(mid);else renderDash();
+    return;
+  }
+
+  const lockKey='manual_'+mid;
+  if(_deductInFlight.has(lockKey)){alert('처리 중입니다. 잠시만 기다려주세요.');return;}
+  _deductInFlight.add(lockKey);
+  if(btn)btn.disabled=true;
   try{
     const s=await refreshSessionIfNeeded();
     if(!s||!s.user_id){alert('로그인이 필요합니다.');return;}
@@ -2446,6 +2503,7 @@ function deleteSession(mid,sid){
 
 function openRenewModal(mid){
   const m=loadM().find(x=>x.id===mid);if(!m)return;
+  delete document.getElementById('modal-renew').dataset.editIdx; // 이전에 취소된 '수정' 모드가 남아있지 않도록 초기화
   document.getElementById('mr-mid').value=mid;
   document.getElementById('mr-sub').textContent=`${m.name} 회원 · 현재 잔여 ${remain(m)}회`;
   document.getElementById('mr-total').value=m.total||10;
@@ -2477,6 +2535,10 @@ function saveRenew(btn){
     if(!h)return;
     if(btn)btn.disabled=true;
     const newCount=parseInt(document.getElementById('mr-total').value)||0;
+    if(!newCount){
+      alert('횟수를 입력해주세요.');
+      if(btn)btn.disabled=false;return;
+    }
     if(newCount<(h.used||0)){
       alert('수정할 횟수('+newCount+'회)가 이미 사용한 횟수('+h.used+'회)보다 적습니다.\n사용한 횟수 이상으로 입력해주세요.');
       if(btn)btn.disabled=false;return;
@@ -3304,13 +3366,19 @@ function deleteSchedule(){
   const memberName=sch?.memberName||'회원';
   const wasDone=!!sch?.done;
   const msg=wasDone
-    ?'수업을 삭제하시겠습니까?\n삭제할 경우 '+memberName+'님의 잔여 횟수가 1회 복구됩니다.'
+    ?'수업을 삭제하시겠습니까?\n삭제할 경우 '+memberName+'님의 잔여 횟수가 1회 복구되고, 관련 수업기록도 함께 삭제됩니다.'
     :'수업을 삭제하시겠습니까?\n(아직 완료 처리 전이라 횟수 변동은 없습니다.)';
   if(!confirm(msg))return;
   if(memberId&&wasDone){
     const ms=loadM();
     const idx=ms.findIndex(x=>x.id===memberId);
     if(idx>=0){migrateRenewHistory(ms[idx]);restoreTicket(ms[idx]);saveM(ms);}
+    // 이 일정(scheduleId)으로 생성된 수업기록도 같이 제거 (고아 기록 방지)
+    const ss=loadS();
+    if(ss[memberId]){
+      ss[memberId]=ss[memberId].filter(function(s){return s.scheduleId!==id;});
+      saveS(ss);
+    }
   }
   saveSch(loadSch().filter(x=>x.id!==id));
   closeOv('modal-schedule');
