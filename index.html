@@ -793,6 +793,11 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
       </select>
     </div>
   </div>
+  <div class="frow" id="mr-remain-row" style="display:none;">
+    <label class="flabel">잔여 횟수 (직접수정)</label>
+    <input class="finput" id="mr-remain" type="number" min="0">
+    <div style="font-size:10.5px;color:var(--mt);margin-top:4px;">이 값을 바꾸면 "사용한 횟수"가 자동으로 재계산돼요 (예: 실수로 잘못 차감/복원된 경우 여기서 바로 잡으세요)</div>
+  </div>
   <div class="fgrid2">
     <div class="frow">
       <label class="flabel">수강 기한 (일)</label>
@@ -1333,12 +1338,36 @@ function migrateRenewHistory(m){
   return m;
 }
 
+// 특정 수강권(hist[i])이 실제로 유효했던 기간(시작~종료)을 계산.
+// renderTicketCard의 날짜창 로직과 동일해야 "잔여"가 일관되게 유지됨.
+function getTicketWindow(hist,i){
+  var h=hist[i];
+  var startTs=h.date?new Date(h.date+'T00:00:00').getTime():0;
+  var endTs=Infinity;
+  if(h.date&&h.days){
+    var ed=new Date(h.date+'T00:00:00');
+    ed.setDate(ed.getDate()+(parseInt(h.days)||90));
+    endTs=ed.getTime();
+  }
+  if(i<hist.length-1&&hist[i+1].date){
+    var nextStart=new Date(hist[i+1].date+'T00:00:00').getTime();
+    endTs=Math.min(endTs,nextStart);
+  }
+  return{startTs:startTs,endTs:endTs};
+}
+function countSessionsInWindow(sessions,startTs,endTs){
+  return(sessions||[]).filter(function(s){return s.ts>=startTs&&s.ts<endTs;}).length;
+}
+
 function getActiveTicket(m){
-  // 현재 사용 중인 수강권 반환 (잔여 있는 가장 오래된 것)
+  // 현재 사용 중인 수강권 반환 (실제 이용내역 기준 잔여 있는 가장 오래된 것)
   if(!m.renewHistory||!m.renewHistory.length) return null;
+  var sessions=loadS()[m.id]||[];
   for(var i=0;i<m.renewHistory.length;i++){
     var h=m.renewHistory[i];
-    var left=(h.count||0)-(h.used||0);
+    var win=getTicketWindow(m.renewHistory,i);
+    var completed=countSessionsInWindow(sessions,win.startTs,win.endTs);
+    var left=(h.count||0)-completed;
     if(left>0) return {idx:i, ticket:h, remain:left};
   }
   return null;
@@ -1394,27 +1423,34 @@ function autoCalcMrDays(){
   updateDaysHint('mr-days-hint',days);
 }
 
+// 총 등록 횟수 (모든 수강권 count 합) - "잔여/진행률" 계산의 공통 기준
+function getTotalCapacity(m){
+  return(!m.renewHistory||!m.renewHistory.length)?(m.total||0):m.renewHistory.reduce(function(s,h){return s+(h.count||0);},0);
+}
+// 실제 이용내역(세션 기록) 개수 - used 카운터 대신 이걸 "실사용" 단일 기준으로 삼음
+function actualUsedCount(m){
+  return(loadS()[m.id]||[]).length;
+}
 function getTotalRemain(m){
-  if(!m.renewHistory||!m.renewHistory.length) return (m.total||0)-(m.used||0);
-  return m.renewHistory.reduce(function(s,h){return s+Math.max(0,(h.count||0)-(h.used||0));},0);
+  // "잔여"의 단일 기준을 used 카운터가 아니라 실제 이용내역(세션 기록) 개수로 삼음.
+  // used는 그동안의 여러 동기화/차감 버그로 실제 이용내역과 어긋난 이력이 있어
+  // 더 이상 신뢰 기준으로 쓰지 않음. 총 등록 횟수 - 실제 완료된 수업 기록 수 = 진짜 잔여.
+  return Math.max(0,getTotalCapacity(m)-actualUsedCount(m));
 }
 
 // 이력 화면에서 "수업 후 잔여"를 정확히 보여주기 위한 시점별 잔여 계산
-// (여러 번 재등록한 회원도 그 시점에 실제로 남았던 횟수를 재구성함)
+// (getTotalRemain·상단 잔여숫자와 항상 일치하도록, 현재의 진짜 잔여에서 출발해
+// 최신 세션부터 거꾸로 1씩 되짚어 계산함 — count를 처음부터 재시뮬레이션하지 않음.
+// 예전 방식은 renewHistory의 count만으로 처음부터 다시 계산해서, 실제 used 값이나
+// 수동으로 바로잡은 잔여와 어긋날 수 있었음)
 function computeHistoricalRemain(m,sessions){
   const result={};
-  const hist=(m.renewHistory&&m.renewHistory.length)?m.renewHistory:[{date:m.start||'',count:m.total||0}];
-  const batches=hist.map(function(h){return{date:h.date?new Date(h.date).getTime():0,left:h.count||0};}).sort(function(a,b){return a.date-b.date;});
-  const sessionsAsc=sessions.slice().sort(function(a,b){return a.ts-b.ts;});
-  sessionsAsc.forEach(function(s){
-    // 이 세션 시점 이전에 이미 등록된 배치 중, 가장 오래된 것부터 차감
-    for(let i=0;i<batches.length;i++){
-      if(batches[i].date<=s.ts&&batches[i].left>0){batches[i].left--;break;}
-    }
-    // 이 세션 시점까지 등록된 배치들의 잔여 합 (미래에 등록될 배치는 제외)
-    const totalLeft=batches.reduce(function(sum,b){return b.date<=s.ts?sum+b.left:sum;},0);
+  const sessionsDesc=sessions.slice().sort(function(a,b){return b.ts-a.ts;}); // 최신순
+  let running=getTotalRemain(m); // 지금 이 순간의 진짜 잔여(단일 소스)에서 시작
+  sessionsDesc.forEach(function(s){
     const sid=s.id?s.id:('_'+s.ts);
-    result[sid]=totalLeft;
+    result[sid]=running; // 이 세션이 끝난 직후의 잔여
+    running=running+1; // 한 세션 더 과거로 갈수록, 아직 그 세션만큼은 차감되기 전 상태였음
   });
   return result;
 }
@@ -1506,7 +1542,7 @@ function initSample(){
 }
 
 const remain=m=>getTotalRemain(m);
-const pct=m=>m.total>0?Math.round((m.used/m.total)*100):0;
+const pct=m=>{const cap=getTotalCapacity(m);return cap>0?Math.round((actualUsedCount(m)/cap)*100):0;};
 function fmtDate(ts){const d=new Date(ts);return`${d.getFullYear()}.${(d.getMonth()+1).toString().padStart(2,'0')}.${d.getDate().toString().padStart(2,'0')}`;}
 function fmtPrice(n){if(!n)return'-';return Number(n).toLocaleString('ko-KR')+'원';}
 function typeClass(t){
@@ -1797,7 +1833,7 @@ function renderDashList(){
             '<div style="height:100%;width:'+p+'%;background:'+c+';border-radius:99px;"></div>'+
           '</div>'+
           '<div style="display:flex;justify-content:space-between;margin-top:4px;">'+
-            '<span style="font-size:10px;color:var(--mt);">'+m.used+'회 완료</span>'+
+            '<span style="font-size:10px;color:var(--mt);">'+actualUsedCount(m)+'회 완료</span>'+
             '<span style="font-size:10px;color:'+lastColor+';">'+lastTxt+'</span>'+
           '</div>'+
         '</div>'+
@@ -1878,7 +1914,7 @@ function showDetail(id){
           "></div>
         </div>
         <div style="display:flex;justify-content:space-between;margin-top:5px;">
-          <span style="font-size:10px;color:var(--mt);">${m.used}회 완료</span>
+          <span style="font-size:10px;color:var(--mt);">${actualUsedCount(m)}회 완료</span>
           <span style="font-size:10px;color:var(--mt);">${pct(m)}%</span>
         </div>
       </div>
@@ -2085,10 +2121,10 @@ function renderTicketCard(m){
       return s.ts>=ticketStartTs&&s.ts<ticketEndTs;
     }).length;
 
-    // 잔여 = 실제 차감 필드(used) 기준. 서버 RPC/getTotalRemain과 동일한 단일 소스를 사용해
-    // 화면마다 다른 잔여 숫자가 나오는 걸 방지함 (날짜창 기준 재계산은 재등록 타이밍에 따라 어긋날 수 있음)
+    // 잔여 = 실제 이용내역(세션 기록) 기준. used 카운터는 과거 버그로 어긋난 이력이 있어
+    // 신뢰 기준에서 제외하고, getTotalRemain과 마찬가지로 실제 완료 기록 수를 단일 기준으로 삼음
     var hCount=h.count||0;
-    var leftCount=Math.max(0,hCount-(h.used||0));
+    var leftCount=Math.max(0,hCount-ticketCompleted);
 
     var isDone=leftCount===0&&!isCurrent;
     var status=isDone?'완료':leftCount===0?'소진':ticketCompleted===0?'대기중':'사용중';
@@ -2231,6 +2267,12 @@ function editTicket(mid, ticketIdx){
   document.getElementById('mr-mid').value=mid;
   document.getElementById('mr-sub').textContent=ms[mi].name+' 회원 · 수강권 수정';
   document.getElementById('mr-total').value=h.count||'';
+  document.getElementById('mr-remain-row').style.display='block';
+  var win=getTicketWindow(ms[mi].renewHistory,ticketIdx);
+  var completedNow=countSessionsInWindow(loadS()[mid],win.startTs,win.endTs);
+  var prefillRemain=Math.max(0,(h.count||0)-completedNow);
+  document.getElementById('mr-remain').value=prefillRemain;
+  document.getElementById('modal-renew').dataset.prefillRemain=prefillRemain; // 사용자가 실제로 값을 바꿨는지 판단용
   // rawPrice가 저장돼 있으면 그대로, 없는 예전 데이터는 discount%로 원가를 역산해서 추정
   var estRawPrice=h.rawPrice!=null?h.rawPrice:(h.discount?Math.round((h.price||0)/(1-h.discount/100)):h.price);
   document.getElementById('mr-price').value=estRawPrice||'';
@@ -2274,7 +2316,10 @@ function renderHistory(){
 
 function closeOv(id){
   document.getElementById(id).classList.remove('open');
-  if(id==='modal-renew')delete document.getElementById('modal-renew').dataset.editIdx;
+  if(id==='modal-renew'){
+    delete document.getElementById('modal-renew').dataset.editIdx;
+    delete document.getElementById('modal-renew').dataset.prefillRemain;
+  }
 }
 function closeOvOut(e,id){if(e.target===document.getElementById(id))closeOv(id);}
 
@@ -2347,7 +2392,9 @@ function saveMember(btn){
     const at=getActiveTicket(existing);
     const targetIdx=at?at.idx:renewHistory.length-1;
     const target=renewHistory[targetIdx];
-    const newCount=Math.max(target.used||0,(target.count||0)+totalDelta);
+    const winM=getTicketWindow(renewHistory,targetIdx);
+    const completedM=countSessionsInWindow(loadS()[id],winM.startTs,winM.endTs);
+    const newCount=Math.max(completedM,(target.count||0)+totalDelta);
     renewHistory[targetIdx]=Object.assign({},target,{weekly,days,count:newCount,price});
   }else{
     renewHistory=[{date:startDate,count:total,price,weekly,days}];
@@ -2539,6 +2586,8 @@ function deleteSession(mid,sid){
 function openRenewModal(mid){
   const m=loadM().find(x=>x.id===mid);if(!m)return;
   delete document.getElementById('modal-renew').dataset.editIdx; // 이전에 취소된 '수정' 모드가 남아있지 않도록 초기화
+  delete document.getElementById('modal-renew').dataset.prefillRemain;
+  document.getElementById('mr-remain-row').style.display='none';
   document.getElementById('mr-mid').value=mid;
   document.getElementById('mr-sub').textContent=`${m.name} 회원 · 현재 잔여 ${remain(m)}회`;
   document.getElementById('mr-total').value=m.total||10;
@@ -2569,13 +2618,28 @@ function saveRenew(btn){
     const h=ms[idx].renewHistory[parseInt(editIdx)];
     if(!h)return;
     if(btn)btn.disabled=true;
-    const newCount=parseInt(document.getElementById('mr-total').value)||0;
-    if(!newCount){
+    const inputCount=parseInt(document.getElementById('mr-total').value)||0;
+    if(!inputCount){
       alert('횟수를 입력해주세요.');
       if(btn)btn.disabled=false;return;
     }
-    if(newCount<(h.used||0)){
-      alert('수정할 횟수('+newCount+'회)가 이미 사용한 횟수('+h.used+'회)보다 적습니다.\n사용한 횟수 이상으로 입력해주세요.');
+    const win=getTicketWindow(ms[idx].renewHistory,parseInt(editIdx));
+    const completedNow=countSessionsInWindow(loadS()[mid],win.startTs,win.endTs);
+    const remainInput=document.getElementById('mr-remain').value;
+    const prefillRemain=parseInt(modal.dataset.prefillRemain);
+    const remainChanged=remainInput!==''&&parseInt(remainInput)!==prefillRemain;
+    let newCount,newRemain;
+    if(remainChanged){
+      // 사용자가 "잔여"를 직접 바꿈 → 실제 이용내역 수(completedNow)는 그대로 두고, 횟수(count)를 역산
+      newRemain=Math.max(0,parseInt(remainInput)||0);
+      newCount=completedNow+newRemain;
+    }else{
+      // "잔여"는 안 건드리고 "횟수"만 바꿈(또는 둘 다 안 바꿈) → 횟수 입력값을 그대로 사용
+      newCount=inputCount;
+      newRemain=Math.max(0,newCount-completedNow);
+    }
+    if(newCount<completedNow){
+      alert('횟수('+newCount+'회)가 이미 완료된 수업 수('+completedNow+'회)보다 적습니다.\n완료된 수업 수 이상으로 입력해주세요.');
       if(btn)btn.disabled=false;return;
     }
     const price=parseInt(document.getElementById('mr-price').value)||0;
@@ -2583,6 +2647,7 @@ function saveRenew(btn){
     const finalPrice=Math.round(price*(1-discount/100));
     // renewHistory 업데이트
     h.count=newCount;
+    h.used=completedNow; // 참고용으로만 유지(실제 잔여 판단 기준은 이용내역 수, used는 더 이상 신뢰 기준 아님)
     h.price=finalPrice;
     h.rawPrice=price; // 할인 전 원가를 별도 보관 (재수정 시 할인 중복적용 방지용)
     h.weekly=parseInt(document.getElementById('mr-weekly').value)||2;
