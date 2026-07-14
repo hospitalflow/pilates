@@ -3311,6 +3311,15 @@ async function completeScheduleSession(schedId,memberId,type,btn){
   const s=await refreshSessionIfNeeded();
   if(!s||!s.user_id){alert('로그인이 필요합니다.');_deductInFlight.delete(schedId);if(btn)btn.disabled=false;return;}
   try{
+    // 기록 시각은 "버튼 누른 시각"이 아니라 "일정의 실제 수업 일시" 기준
+    // (다음날 완료 처리해도 수업한 날짜로 기록되도록)
+    const schObj=loadSch().find(function(x){return x.id===schedId;});
+    let sessTs=Date.now();
+    if(schObj&&schObj.date){
+      const t=schObj.endTime||schObj.startTime||'12:00';
+      const dt=new Date(schObj.date+'T'+t+':00').getTime();
+      if(!isNaN(dt))sessTs=dt;
+    }
     const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
       method:'POST',
       headers:{
@@ -3323,7 +3332,7 @@ async function completeScheduleSession(schedId,memberId,type,btn){
         p_schedule_id:schedId,
         p_member_id:memberId,
         p_session_type:type||'기구 필라테스 (개인)',
-        p_session_ts:Date.now()
+        p_session_ts:sessTs
       })
     });
     const result=await res.json();
@@ -3590,6 +3599,7 @@ function runAudit(){
   const ms=loadM(), ss=loadS(), schs=loadSch();
   const today=localDateStr();
   _auditItems=[];
+  _auditExtra=[];
   const done={}; // mid|date → 완료된 일정 목록
   schs.forEach(function(s){
     if(!s.done||!s.memberId||!s.date)return;
@@ -3597,6 +3607,7 @@ function runAudit(){
     const k=s.memberId+'|'+s.date;
     (done[k]=done[k]||[]).push(s);
   });
+  // 1) 차감 누락: 완료된 일정 수 > 수업 기록 수
   Object.keys(done).forEach(function(k){
     const parts=k.split('|'), mid=parts[0], date=parts[1];
     const m=ms.find(function(x){return x.id===mid;});
@@ -3612,26 +3623,91 @@ function runAudit(){
       }
     }
   });
+  // 2) 과다 차감 의심: 수업 기록 수 > 완료된 일정 수 (일정 없이 남은 기록)
+  //    수동으로 직접 넣은 정상 기록도 포함될 수 있으므로 "의심 건"으로 표시하고 삭제는 사용자가 판단
+  ms.forEach(function(m){
+    const byDate={};
+    (ss[m.id]||[]).forEach(function(x){
+      const d=localDateStr(new Date(x.ts));
+      (byDate[d]=byDate[d]||[]).push(x);
+    });
+    Object.keys(byDate).forEach(function(date){
+      const doneCount=(done[m.id+'|'+date]||[]).length;
+      const list=byDate[date];
+      if(list.length>doneCount){
+        list.slice().sort(function(a,b){return a.ts-b.ts;}).forEach(function(x){
+          const d=new Date(x.ts);
+          const hm=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+          _auditExtra.push({mid:m.id,name:m.name,date:date,time:hm,sid:x.id?x.id:('_'+x.ts),note:x.note||'',doneCount:doneCount,total:list.length});
+        });
+      }
+    });
+  });
   _auditItems.sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+  _auditExtra.sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
   renderAuditResult();
 }
+let _auditExtra=[];
 function renderAuditResult(){
   const el=document.getElementById('audit-result');
   const fixBtn=document.getElementById('audit-fixall-btn');
-  if(!_auditItems.length){
-    el.innerHTML='<div style="padding:24px;text-align:center;"><div style="font-size:32px;margin-bottom:8px;">✅</div><div style="font-size:14px;font-weight:700;color:var(--grn);">차감 누락 없음</div><div style="font-size:12px;color:var(--mt);margin-top:4px;">완료된 모든 일정에 수업 기록이 존재합니다</div></div>';
+  let html='';
+  // 섹션 1: 차감 누락
+  if(_auditItems.length){
+    fixBtn.style.display='';
+    html+='<div style="font-size:12px;color:var(--yel);font-weight:700;margin-bottom:8px;">⚠ 차감 누락 '+_auditItems.length+'건 — 일정은 완료됐지만 수업 기록이 없어 잔여가 차감되지 않은 건</div>'
+      +_auditItems.map(function(it,i){
+        return '<div id="audit-item-'+i+'" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--bd2);border-radius:10px;margin-bottom:8px;background:var(--s2);">'
+        +'<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">'+it.name+'</div>'
+        +'<div style="font-size:11px;color:var(--mt);margin-top:2px;">'+it.date+' '+it.time+' · '+it.type+'</div></div>'
+        +'<button class="btn-save" style="padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="fixMissing('+i+',this)">기록 추가</button>'
+        +'</div>';
+      }).join('');
+  }else{
     fixBtn.style.display='none';
-    return;
   }
-  fixBtn.style.display='';
-  el.innerHTML='<div style="font-size:12px;color:var(--yel);font-weight:700;margin-bottom:8px;">⚠ 차감 누락 '+_auditItems.length+'건 발견 — 일정은 완료됐지만 수업 기록이 없어 잔여가 차감되지 않은 건입니다</div>'
-    +_auditItems.map(function(it,i){
-      return '<div id="audit-item-'+i+'" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--bd2);border-radius:10px;margin-bottom:8px;background:var(--s2);">'
-      +'<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">'+it.name+'</div>'
-      +'<div style="font-size:11px;color:var(--mt);margin-top:2px;">'+it.date+' '+it.time+' · '+it.type+'</div></div>'
-      +'<button class="btn-save" style="padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="fixMissing('+i+',this)">기록 추가</button>'
-      +'</div>';
-    }).join('');
+  // 섹션 2: 과다 차감 의심 (일정 없이 존재하는 기록)
+  if(_auditExtra.length){
+    html+='<div style="font-size:12px;color:var(--red);font-weight:700;margin:'+(_auditItems.length?'16px':'0')+' 0 4px;">🔍 일정 없는 수업 기록 '+_auditExtra.length+'건 — 완료된 일정보다 기록이 많은 날짜의 기록들</div>'
+      +'<div style="font-size:11px;color:var(--mt);margin-bottom:8px;">직접 입력한 정상 기록일 수도 있으니 확인 후 잘못된 것만 삭제하세요. 삭제 시 잔여 1회가 복원됩니다.</div>'
+      +_auditExtra.map(function(it,i){
+        return '<div id="audit-extra-'+i+'" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--redd);border-radius:10px;margin-bottom:8px;background:var(--s2);">'
+        +'<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">'+it.name+'</div>'
+        +'<div style="font-size:11px;color:var(--mt);margin-top:2px;">'+it.date+' '+it.time+(it.note?' · '+it.note:'')+'</div>'
+        +'<div style="font-size:10px;color:var(--red);margin-top:2px;">이 날짜 기록 '+it.total+'건 / 완료 일정 '+it.doneCount+'건</div></div>'
+        +'<button class="btn-del" style="padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="deleteAuditSession('+i+',this)">🗑 삭제</button>'
+        +'</div>';
+      }).join('');
+  }
+  if(!_auditItems.length&&!_auditExtra.length){
+    html='<div style="padding:24px;text-align:center;"><div style="font-size:32px;margin-bottom:8px;">✅</div><div style="font-size:14px;font-weight:700;color:var(--grn);">이상 없음</div><div style="font-size:12px;color:var(--mt);margin-top:4px;">차감 누락도, 일정 없는 기록도 발견되지 않았습니다</div></div>';
+  }
+  el.innerHTML=html;
+}
+async function deleteAuditSession(i,btn){
+  const it=_auditExtra[i];
+  if(!it||it.fixed)return;
+  if(!confirm(it.name+'님 '+it.date+' '+it.time+' 기록을 삭제하고 잔여를 1회 복원할까요?\n(실제로 한 수업이면 삭제하지 마세요)'))return;
+  if(btn){btn.disabled=true;btn.textContent='처리 중...';}
+  await syncFromCloud(true); // 최신 데이터 기준으로 삭제 (타 기기 변경 유실 방지)
+  const ss=loadS();
+  if(ss[it.mid]){
+    const before=ss[it.mid].length;
+    ss[it.mid]=ss[it.mid].filter(function(s){return(s.id?s.id:('_'+s.ts))!==it.sid;});
+    if(ss[it.mid].length<before){
+      saveS(ss);
+      const ms2=loadM();
+      const idx=ms2.findIndex(function(x){return x.id===it.mid;});
+      if(idx>=0){migrateRenewHistory(ms2[idx]);restoreTicket(ms2[idx]);saveM(ms2);}
+      it.fixed=true;
+      const row=document.getElementById('audit-extra-'+i);
+      if(row){row.style.opacity='0.55';if(btn){btn.textContent='✅ 삭제됨';}}
+      refreshCurrentView();
+      return;
+    }
+  }
+  if(btn){btn.disabled=false;btn.textContent='🗑 삭제';}
+  alert('기록을 찾을 수 없습니다. 점검을 다시 실행해주세요.');
 }
 async function fixMissingSession(it){
   const s=await refreshSessionIfNeeded();
