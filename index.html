@@ -4054,7 +4054,10 @@ async function autoCompleteSchedules(){
     if(s.done||!s.date||!s.memberId)return false;
     const endTimeStr=s.endTime||s.startTime||'23:59';
     const endDt=new Date(s.date+'T'+endTimeStr+':00');
-    return endDt<=now;
+    // 안전장치: 종료 시간이 시작 시간보다 앞서 저장된 경우(입력 실수, 자정 넘김 등)
+    // 시작도 안 한 수업이 즉시 완료되는 것을 막기 위해 시작 시간 경과도 함께 요구
+    const startDt=s.startTime?new Date(s.date+'T'+s.startTime+':00'):endDt;
+    return endDt<=now&&startDt<=now;
   });
   if(!pending.length)return false;
   const s0=await refreshSessionIfNeeded();
