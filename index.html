@@ -2702,6 +2702,17 @@ function editSessionRecord(mid,sid){
   document.getElementById('time-popup').style.display='none';
   document.getElementById('modal-session').classList.add('open');
 }
+// 동일 내용 재시도에는 같은 요청번호를 사용합니다. 수업 기록이 있는 동안 서버에서 재전송을 건너뜁니다.
+function manualRequestId(mid,ts,type,note){
+  const owner=(getSession()||{}).user_id||'';
+  const key='pilates_manual_request_compatible';
+  const payload=JSON.stringify([owner,mid,ts,type,note||'']);
+  let pending=null;try{pending=JSON.parse(localStorage.getItem(key));}catch(e){}
+  if(pending&&pending.payload===payload)return pending.id;
+  const id=typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
+  localStorage.setItem(key,JSON.stringify({payload:payload,id:id}));
+  return id;
+}
 async function saveSession(btn){
   if(btn&&btn.disabled)return;
   const mid=document.getElementById('ms-mid').value;
@@ -2740,7 +2751,7 @@ async function saveSession(btn){
     const s=await refreshSessionIfNeeded();
     if(!s||!s.user_id){alert('로그인이 필요합니다.');return;}
     if(!await prepareServerChange())return;
-    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session_manual',{
+    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session_manual_v2',{
       method:'POST',
       headers:{
         'apikey':SB_KEY,
@@ -2752,7 +2763,8 @@ async function saveSession(btn){
         p_member_id:mid,
         p_session_type:msType,
         p_session_ts:msTs,
-        p_note:msNote
+        p_note:msNote,
+        p_request_id:manualRequestId(mid,msTs,msType,msNote)
       })
     });
     const result=await res.json();
@@ -2871,24 +2883,21 @@ function saveRenew(btn){
     if(!h)return;
     if(btn)btn.disabled=true;
     const inputCount=parseInt(document.getElementById('mr-total').value)||0;
-    if(!inputCount){
-      alert('횟수를 입력해주세요.');
+    if(!Number.isInteger(inputCount)||inputCount<=0){
+      alert('횟수를 양의 정수로 입력해주세요.');
       if(btn)btn.disabled=false;return;
     }
     const completedNow=ticketUsedAt(ms[idx],parseInt(editIdx));
     const remainInput=document.getElementById('mr-remain').value;
     const prefillRemain=parseInt(modal.dataset.prefillRemain);
     const remainChanged=remainInput!==''&&parseInt(remainInput)!==prefillRemain;
-    let newCount,newRemain;
-    if(remainChanged){
-      // 사용자가 "잔여"를 직접 바꿈 → 실제 이용내역 수(completedNow)는 그대로 두고, 횟수(count)를 역산
-      newRemain=Math.max(0,parseInt(remainInput)||0);
-      newCount=completedNow+newRemain;
-    }else{
-      // "잔여"는 안 건드리고 "횟수"만 바꿈(또는 둘 다 안 바꿈) → 횟수 입력값을 그대로 사용
-      newCount=inputCount;
-      newRemain=Math.max(0,newCount-completedNow);
+    // 잔여는 수업 기록에서 계산합니다. 잔여 입력으로 구매 횟수를 늘리지 않습니다.
+    const expectedRemain=Math.max(0,inputCount-completedNow);
+    if(remainChanged&&parseInt(remainInput)!==expectedRemain){
+      alert('잔여를 바꾸기 위해 총 등록 횟수를 자동으로 늘리지 않습니다.\n현재 '+inputCount+'회권에 완료 기록 '+completedNow+'건이 있어 잔여는 '+expectedRemain+'회입니다.\n실제 수업과 다른 기록이 있다면 이용내역을 대조해주세요. 실제 구매 횟수 변경은 총 횟수 항목에서 해주세요.');
+      if(btn)btn.disabled=false;return;
     }
+    const newCount=inputCount,newRemain=expectedRemain;
     if(newCount<completedNow){
       alert('횟수('+newCount+'회)가 이미 완료된 수업 수('+completedNow+'회)보다 적습니다.\n완료된 수업 수 이상으로 입력해주세요.');
       if(btn)btn.disabled=false;return;
@@ -2922,7 +2931,7 @@ function saveRenew(btn){
   delete modal.dataset.editIdx;
   const mid=document.getElementById('mr-mid').value;
   const addCount=parseInt(document.getElementById('mr-total').value)||0;
-  if(!addCount){alert('추가 횟수를 입력해주세요.');return;}
+  if(!Number.isInteger(addCount)||addCount<=0){alert('추가 횟수를 양의 정수로 입력해주세요.');return;}
   const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
   if(btn)btn.disabled=true;
   const price=parseInt(document.getElementById('mr-price').value)||0;
@@ -3881,10 +3890,10 @@ async function fixMissingSession(it){
   const ts=new Date(it.date+'T'+(it.time||'10:00')+':00').getTime();
   try{
     if(!await prepareServerChange())return {ok:false,error:'동기화를 완료하지 못했습니다'};
-    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session_manual',{
+    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session_manual_v2',{
       method:'POST',
       headers:{'apikey':SB_KEY,'Authorization':'Bearer '+s.access_token,'Content-Type':'application/json'},
-      body:JSON.stringify({p_owner_id:s.user_id,p_member_id:it.mid,p_session_type:it.type,p_session_ts:ts,p_note:'(점검 복구)'})
+      body:JSON.stringify({p_owner_id:s.user_id,p_member_id:it.mid,p_session_type:it.type,p_session_ts:ts,p_note:'(점검 복구)',p_request_id:manualRequestId(it.mid,ts,it.type,'(점검 복구)')})
     });
     const result=await res.json();
     if(!res.ok||result.ok===false){
