@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>통합 v3 · 필라테스 회원관리</title>
+<title>필라테스 회원관리</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Noto+Sans+KR:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
 
@@ -426,10 +426,6 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   .stat-row{grid-template-columns:repeat(3,1fr);}
   .fgrid2,.fgrid3{grid-template-columns:1fr;}
 }
-
-/* 통합 v3: 작은 화면에서 동기화 상태와 모든 관리 버튼에 접근 가능 */
-@media(max-width:1100px){.hdr{flex-wrap:wrap}.hdr-right{width:100%;min-width:0;flex-wrap:wrap}.hdr>div:first-child{flex-basis:100%!important}}
-@media(max-width:700px){.hdr-right{gap:4px;justify-content:space-between}.hdr-right #sync-status{flex-basis:100%;font-size:12px!important;min-height:20px;justify-content:flex-start}.hdr-right .hdr-btn{flex:1;min-width:28px;padding:7px 4px!important}.hdr-right .hdr-btn-label{display:none}}
 </style>
 </head>
 <body>
@@ -592,7 +588,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   <div class="view" id="view-stats">
     <div style="margin-bottom:14px;">
       <div style="font-family:'Noto Serif KR',serif;font-size:20px;color:var(--tx);margin-bottom:2px;font-weight:700;">통계</div>
-      <div style="font-size:12px;color:var(--mt);">등록금액 · 수업 · 생일</div>
+      <div style="font-size:12px;color:var(--mt);">매출 · 수업 · 생일</div>
     </div>
     <div id="stats-content"></div>
   </div>
@@ -1039,7 +1035,6 @@ function schedDrop(e,targetDate){
   var idx=schs.findIndex(function(x){return x.id===schedId;});
   if(idx<0)return;
   if(schs[idx].date===targetDate)return;
-  if(schs[idx].done){alert('완료 일정의 날짜는 이동할 수 없습니다.');return;}
   schs[idx].date=targetDate;
   saveSch(schs);
   calViewSelected=targetDate;
@@ -1201,20 +1196,66 @@ async function refreshSessionIfNeeded(){
 // 내 변경과 서버 변경을 자동 병합해 한 번 더 저장을 시도합니다. 병합 근거가 없거나
 // (이 기능 적용 전의 오래된 미전송 자료 등) 병합 후에도 다시 충돌하면 기존처럼 안전하게 멈춥니다.
 async function sbPush(key,value){
- const lk={members:SK,sessions:SK2,schedules:SK3}[key];
- try{
-  if(key==='subscription')throw Error('구독 저장은 이 경로에서 지원하지 않습니다.');
-  const expected=localStorage.getItem(localUpdatedKey(lk))||null;
-  const payload={key,data:value,expected};
-  const pendingKey=lk+'_v3_commit_request';let pending;
-  try{pending=JSON.parse(localStorage.getItem(pendingKey));}catch{}
-  if(!pending||!sameData(pending.payload,payload)){pending={id:'commit:'+uid(),payload};localStorage.setItem(pendingKey,JSON.stringify(pending));}
-  const r=await callV3('commit',payload,pending.id);
-  if(!r.ok){setSyncStatus(r.error==='conflict'?'conflict':'error');console.warn('서버 저장 거부',r.error);_v3LastError=r.error;return null;}
-  localStorage.removeItem(pendingKey);
-  // queueSave가 미전송 변경을 보존하면서 정규화된 응답을 적용합니다.
-  _v3LastCommit.set(lk,r);return r.updated_at;
- }catch(e){setSyncStatus('error');_v3LastError=e.message;return null;}
+  const session=await refreshSessionIfNeeded();
+  if(!session||!session.user_id){setSyncStatus('offline');return null;}
+  const lk={members:SK,sessions:SK2,schedules:SK3}[key];
+  try{
+    if(!validData(key,value)){setSyncStatus('error');return null;}
+    let base=localStorage.getItem(localUpdatedKey(lk));
+    let merged=false;
+    for(let attempt=0;attempt<2;attempt++){
+      const remote=await sbPull(key);
+      if(remote.error){setSyncStatus('error');return null;}
+      // 응답만 유실된 저장은 서버 자료와 전송 사본을 대조해 확인합니다.
+      let pending=null;try{pending=JSON.parse(localStorage.getItem(lk+'_attempt_v2'));}catch(e){}
+      if(!remote.empty&&pending&&pending.owner===session.user_id&&sameData(remote.data,pending.data)){
+        base=remote.updated_at;
+        localStorage.setItem(localUpdatedKey(lk),base);
+        localStorage.removeItem(lk+'_attempt_v2');
+      }
+      if(!remote.empty&&remote.updated_at&&sameData(remote.data,value)){
+        setBaseData(lk,value);
+        return remote.updated_at;
+      }
+      if(!remote.empty&&(!base||remote.updated_at!==base)){
+        const baseline=merged?null:getBaseData(lk);
+        if(baseline){
+          const mergedValue=key==='sessions'?mergeSessionsByBase(baseline,value,remote.data):mergeArrByBase(baseline,value,remote.data);
+          merged=true;
+          if(!validData(key,mergedValue)){setSyncStatus('conflict');return null;}
+          if(sameData(mergedValue,remote.data)){
+            // 병합해봐도 내 기기가 새로 기여한 내용이 없음 → 서버 값을 그대로 채택
+            storeLocal(lk,remote.data);
+            setBaseData(lk,remote.data);
+            return remote.updated_at;
+          }
+          value=mergedValue;
+          base=remote.updated_at;
+          storeLocal(lk,mergedValue); // 병합 결과를 기기에도 반영 (재시도의 근거가 됨)
+          continue;
+        }
+        setSyncStatus('conflict');return null;
+      }
+      const headers={'apikey':SB_KEY,'Authorization':'Bearer '+session.access_token,
+        'Content-Type':'application/json','Prefer':'return=representation'};
+      const stamp=new Date(Math.max(Date.now(),Date.parse(base||'')+1||0)).toISOString();
+      const endpoint=SB_URL+'/rest/v1/'+SB_TABLE;
+      const filter='?owner_id=eq.'+encodeURIComponent(session.user_id)+'&key=eq.'+encodeURIComponent(key)
+        +'&updated_at=eq.'+encodeURIComponent(base||'');
+      localStorage.setItem(lk+'_attempt_v2',JSON.stringify({owner:session.user_id,data:value}));
+      const res=await fetch(endpoint+(remote.empty?'':filter),{
+        method:remote.empty?'POST':'PATCH',headers,
+        body:JSON.stringify(remote.empty?{key,owner_id:session.user_id,data:value,updated_at:stamp}:{data:value,updated_at:stamp})
+      });
+      if(!res.ok){setSyncStatus(res.status===409?'conflict':'error');return null;}
+      const rows=await res.json();
+      if(!Array.isArray(rows)||rows.length!==1||!rows[0].updated_at){setSyncStatus('conflict');return null;}
+      localStorage.removeItem(lk+'_attempt_v2');
+      setBaseData(lk,value);
+      return rows[0].updated_at;
+    }
+    setSyncStatus('conflict');return null; // 병합 후 재시도까지 실패한 경우 (극히 드묾)
+  }catch(e){console.error('저장 전송 실패',e);setSyncStatus('offline');return null;}
 }
 
 // 반환값 규약:
@@ -1362,24 +1403,22 @@ function storeLocal(k,value){
   }catch(e){alert('기기에 저장하지 못했습니다. 저장 공간을 확인하고 현재 자료를 백업해주세요.');throw e;}
 }
 function queueSave(k,rk){
- if(_saveQueues.has(k))return _saveQueues.get(k);
- const job=(async()=>{await Promise.resolve();
-  while(isDirty(k)){
-   const raw=localStorage.getItem(k),value=JSON.parse(raw);
-   const ts=await sbPush(rk,value);if(!ts)return false;
-   const r=_v3LastCommit.get(k);_v3LastCommit.delete(k);
-   localStorage.setItem(localUpdatedKey(k),ts);
-   if(localStorage.getItem(k)===raw){
-    clearDirty(k);localStorage.setItem(k,JSON.stringify(r[rk]));setBaseData(k,r[rk]);
-   }
-   for(const [other,name] of [[SK,'members'],[SK2,'sessions'],[SK3,'schedules']]){
-    if(other!==k&&isDirty(other)&&sameData(getBaseData(other),r[name]))localStorage.setItem(localUpdatedKey(other),ts);
-    if(other!==k&&!isDirty(other)){preserveCopy(other);localStorage.setItem(other,JSON.stringify(r[name]));localStorage.setItem(localUpdatedKey(other),ts);setBaseData(other,r[name]);}
-   }
-  }return true;
- })().catch(e=>{_v3LastError=e.message;setSyncStatus('error');return false;}).finally(()=>{
-  _saveQueues.delete(k);if(![SK,SK2,SK3].some(isDirty))setSyncStatus('synced');else if(_v3LastError)console.warn(_v3LastError);
- });_saveQueues.set(k,job);return job;
+  if(_saveQueues.has(k))return _saveQueues.get(k);
+  const job=(async()=>{
+    // Map 등록 이후 시작하여 동시 호출을 하나로 묶음
+    await Promise.resolve();
+    while(isDirty(k)){
+      const raw=localStorage.getItem(k);
+      let value;try{value=JSON.parse(raw);}catch(e){setSyncStatus('error');return false;}
+      const ts=await sbPush(rk,value);
+      if(!ts)return false;
+      localStorage.setItem(localUpdatedKey(k),ts);
+      if(localStorage.getItem(k)===raw)clearDirty(k);
+    }
+    return true;
+  })().catch(e=>{console.error('저장 실패',e);setSyncStatus('error');return false;})
+    .finally(()=>{_saveQueues.delete(k);if(![SK,SK2,SK3].some(isDirty))setSyncStatus('synced');});
+  _saveQueues.set(k,job);return job;
 }
 function syncFromCloud(silent){
   if(_syncPromise)return _syncPromise;
@@ -1513,15 +1552,24 @@ function countSessionsInWindow(sessions,startTs,endTs){
 //    직전 수강권(없으면 첫 수강권)에 배정 → 기록이 카드에서 사라지지 않음
 // 3) 한 수강권 횟수를 넘친 기록은 다음 수강권으로 넘김
 function allocateTicketUsage(hist,sessions){
- const result=(hist||[]).map(()=>0);if(!result.length)return result;
- const ordered=(sessions||[]).slice().sort((a,b)=>{
-  if(a.accountingSeq!=null&&b.accountingSeq!=null)return a.accountingSeq-b.accountingSeq;
-  if(a.accountingSeq!=null)return -1;if(b.accountingSeq!=null)return 1;return Number(a.ts)-Number(b.ts);
- });
- for(const record of ordered){
-  let i=hist.findIndex((h,j)=>h.id&&h.id===record.ticketId&&result[j]<numberV3(h.count));
-  if(i<0)i=hist.findIndex((h,j)=>result[j]<numberV3(h.count));if(i<0)i=hist.length-1;result[i]++;
- }return result;
+  var n=(hist||[]).length;
+  var alloc=[];for(var a=0;a<n;a++)alloc.push(0);
+  if(!n)return alloc;
+  var wins=hist.map(function(h,i){return getTicketWindow(hist,i);});
+  (sessions||[]).forEach(function(s){
+    var ts=s.ts,target=-1,i;
+    for(i=0;i<n;i++){if(ts>=wins[i].startTs&&ts<wins[i].endTs){target=i;break;}}
+    if(target<0){
+      target=0;
+      for(i=0;i<n;i++){if(ts>=wins[i].startTs)target=i;}
+    }
+    alloc[target]++;
+  });
+  for(var j=0;j<n-1;j++){
+    var cap=hist[j].count||0;
+    if(alloc[j]>cap){alloc[j+1]+=alloc[j]-cap;alloc[j]=cap;}
+  }
+  return alloc;
 }
 function ticketUsedAt(m,idx){
   var hist=m.renewHistory||[];
@@ -1593,7 +1641,9 @@ function autoCalcMrDays(){
 }
 
 // 총 등록 횟수 (모든 수강권 count 합) - "잔여/진행률" 계산의 공통 기준
-function getTotalCapacity(m){return (m.renewHistory&&m.renewHistory.length)?m.renewHistory.reduce((sum,h)=>sum+numberV3(h.count),0):numberV3(m.total);}
+function getTotalCapacity(m){
+  return(!m.renewHistory||!m.renewHistory.length)?(m.total||0):m.renewHistory.reduce(function(s,h){return s+(h.count||0);},0);
+}
 // 실제 이용내역(세션 기록) 개수 - used 카운터 대신 이걸 "실사용" 단일 기준으로 삼음
 function actualUsedCount(m){
   return(loadS()[m.id]||[]).length;
@@ -1610,26 +1660,95 @@ function getTotalRemain(m){
 // 최신 세션부터 거꾸로 1씩 되짚어 계산함 — count를 처음부터 재시뮬레이션하지 않음.
 // 예전 방식은 renewHistory의 count만으로 처음부터 다시 계산해서, 실제 used 값이나
 // 수동으로 바로잡은 잔여와 어긋날 수 있었음)
-function computeHistoricalRemain(m,sessions){const out={};sessions.forEach(s=>{out[s.id||('_'+s.ts)]=Number.isInteger(s.remainAfter)?s.remainAfter:null;});return out;}
+function computeHistoricalRemain(m,sessions){
+  const result={};
+  const sessionsDesc=sessions.slice().sort(function(a,b){return b.ts-a.ts;}); // 최신순
+  let running=getTotalRemain(m); // 지금 이 순간의 진짜 잔여(단일 소스)에서 시작
+  sessionsDesc.forEach(function(s){
+    const sid=s.id?s.id:('_'+s.ts);
+    result[sid]=running; // 이 세션이 끝난 직후의 잔여
+    running=running+1; // 한 세션 더 과거로 갈수록, 아직 그 세션만큼은 차감되기 전 상태였음
+  });
+  return result;
+}
 
-function deductTicket(){throw Error('통합 서버 경로를 사용해주세요.');}
+function deductTicket(m){
+  // 가장 오래된 수강권부터 차감
+  migrateRenewHistory(m);
+  for(var i=0;i<m.renewHistory.length;i++){
+    var h=m.renewHistory[i];
+    var left=(h.count||0)-(h.used||0);
+    if(left>0){
+      h.used=(h.used||0)+1;
+      // 하위 호환: m.used도 업데이트
+      m.used=(m.used||0)+1;
+      return true;
+    }
+  }
+  return false; // 모두 소진
+}
 
-function restoreTicket(){throw Error('통합 서버 경로를 사용해주세요.');}
+function restoreTicket(m){
+  // 가장 최근에 차감된 수강권 복원
+  migrateRenewHistory(m);
+  for(var i=m.renewHistory.length-1;i>=0;i--){
+    var h=m.renewHistory[i];
+    if((h.used||0)>0){
+      h.used=h.used-1;
+      m.used=Math.max(0,(m.used||0)-1);
+      return true;
+    }
+  }
+  return false;
+}
 function localDateStr(d){
   d=d||new Date();
   return d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0')+'-'+d.getDate().toString().padStart(2,'0');
 }
 var _sesDelMap={};  // 삭제용 전역 맵
-window._doDelSes=async function(key){const info=_sesDelMap[key];if(info)return deleteLessonV3(info.mid,info.sid);};
+window._doDelSes=async function(key){
+  var info=_sesDelMap[key];
+  if(!info)return;
+  if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
+  // 다른 기기/서버 자동완료가 방금 추가한 세션이 로컬에 없는 상태로
+  // 전체 blob을 push하면 그 세션까지 사라지므로, 삭제 전 최신 데이터를 먼저 받아옴
+  if(!await prepareServerChange())return;
+  var ss=loadS();
+  if(!ss[info.mid])return;
+  var before=ss[info.mid].length;
+  ss[info.mid]=ss[info.mid].filter(function(s){
+    var sid2=s.id?s.id:('_'+s.ts);
+    return sid2!==info.sid;
+  });
+  saveS(ss);
+  if(ss[info.mid].length<before){
+    var ms=loadM();
+    var idx=ms.findIndex(function(x){return x.id===info.mid;});
+    if(idx>=0){migrateRenewHistory(ms[idx]);restoreTicket(ms[idx]);saveM(ms);}
+  }
+  if(curDet===info.mid)showDetail(info.mid);else renderDash();
+};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 const withHonorific=name=>name.trim().endsWith('님')?name.trim():name.trim()+'님';
-const loadAllM=()=>{try{return JSON.parse(localStorage.getItem(SK))||[];}catch{return[];}};
-const loadM=()=>loadAllM().filter(m=>!m.archived);
-const saveM=a=>{const ids=new Set(a.map(m=>m.id));const all=a.concat(loadAllM().filter(m=>m.archived&&!ids.has(m.id)));storeLocal(SK,all);return queueSave(SK,'members');};
+const loadM=()=>{try{return JSON.parse(localStorage.getItem(SK))||[];}catch{return[];}};
+const saveM=a=>{storeLocal(SK,a);return queueSave(SK,'members');};
 const loadS=()=>{try{return JSON.parse(localStorage.getItem(SK2))||{};}catch{return{};}};
-const saveS=o=>{alert('출석기록은 서버 전용 처리를 사용해주세요.');return Promise.resolve(false);};
+const saveS=o=>{storeLocal(SK2,o);return queueSave(SK2,'sessions');};
 
-function initSample(){alert('운영 계정에 샘플자료를 추가하지 않습니다. 테스트는 별도 계정으로 진행해주세요.');}
+function initSample(){
+  if(loadM().length>0) return;
+  const today=localDateStr();
+  saveM([
+    {id:'p1',name:'김지수',phone:'010-1111-2222',total:10,used:9,start:'2025-03-01',price:300000,classtype:'기구 필라테스 (개인)',goal:'체형 교정',memo:'허리 디스크 주의',renewHistory:[{date:'2025-03-01',count:10,price:300000}]},
+    {id:'p2',name:'이하은',phone:'010-3333-4444',total:20,used:8,start:'2025-04-10',price:560000,classtype:'기구 필라테스 (듀엣)',goal:'산후 회복',memo:'출산 후 3개월',renewHistory:[{date:'2025-04-10',count:20,price:560000}]},
+    {id:'p3',name:'박소연',phone:'010-5555-6666',total:8,used:8,start:'2025-05-01',price:240000,classtype:'매트 필라테스',goal:'유연성 향상',memo:'',renewHistory:[{date:'2025-05-01',count:8,price:240000}]},
+    {id:'p4',name:'최예진',phone:'010-7777-8888',total:12,used:3,start:today,price:360000,classtype:'그룹 수업',goal:'코어 강화',memo:'무릎 주의',renewHistory:[{date:today,count:12,price:360000}]},
+  ]);
+  const ss={};
+  ss['p1']=[{id:'s1',ts:Date.now()-86400000*2,type:'기구 필라테스 (개인)',note:'롤업 교정 집중. 허리 안정화 운동 추가. 다음 수업 스파인 스트레치 예정.'},{id:'s2',ts:Date.now()-86400000*5,type:'기구 필라테스 (개인)',note:'헌드레드 3세트 완성. 호흡 패턴 많이 좋아짐.'}];
+  ss['p2']=[{id:'s3',ts:Date.now()-86400000,type:'기구 필라테스 (듀엣)',note:'산후 코어 단계별 진행. 플랭크 30초 성공. 다음 단계 진입 가능.'}];
+  saveS(ss);
+}
 
 const remain=m=>getTotalRemain(m);
 const pct=m=>{const cap=getTotalCapacity(m);return cap>0?Math.round((actualUsedCount(m)/cap)*100):0;};
@@ -2132,7 +2251,7 @@ function showDetail(id){
           var rem=histRemainMap[sid]!==undefined?histRemainMap[sid]:getTotalRemain(m);
           h+='<div class="det-row"><span class="det-key">'+sesNum+'회차</span><span style="font-weight:700;color:var(--ac);">'+t+'</span></div>';
           h+='<div class="det-row"><span class="det-key">수업 유형</span><span class="type-tag '+typeClass(s.type)+'">'+s.type+'</span></div>';
-          h+='<div class="det-row"><span class="det-key">처리 당시 잔여</span><span style="font-weight:600;color:'+(rem!==null&&rem<=3?'var(--red)':'var(--tx)')+';">'+(rem===null?'당시 잔여 기록 없음':rem+'회')+'</span></div>';
+          h+='<div class="det-row"><span class="det-key">수업 후 잔여</span><span style="font-weight:600;color:'+(rem<=3?'var(--red)':'var(--tx)')+';">'+rem+'회</span></div>';
           if(s.note)h+='<div class="det-row"><span class="det-key">노트</span><span style="color:var(--dm);">'+s.note+'</span></div>';
           h+='<div style="display:flex;justify-content:flex-end;gap:6px;padding:8px 0;"><button class="ses-edit" data-mid="'+m.id+'" data-sid="'+sid+'" style="background:var(--acd);border:1px solid var(--ac);color:var(--ac);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;position:relative;z-index:10;">✏️ 수정</button><button class="ses-del" data-key="'+key+'" style="background:var(--redd);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;position:relative;z-index:10;">🗑 삭제</button></div>';
         });
@@ -2169,14 +2288,14 @@ function renderTicketCard(m){
     'linear-gradient(135deg,#1a6c3f,#2ab065)',
     'linear-gradient(135deg,#6c1a5a,#b02a8a)',
   ];
-  if(!hist.length){el.innerHTML='<div class="det-card" style="padding:16px">등록된 수강권이 없습니다. 수강권을 추가해주세요.</div>';return;}
+  if(!hist.length) hist=[{date:m.start||'',count:m.total,price:m.price,days:90}];
 
   var allSchs=loadSch();
   var allSessions=loadS()[m.id]||[];
   var allocT=allocateTicketUsage(hist,allSessions);
 
   var cards=hist.map(function(h,i){
-    var activeCard=getActiveTicket(m);var isCurrent=activeCard?i===activeCard.idx:i===hist.length-1;
+    var isCurrent=(i===hist.length-1);
     var bg=colors[i%colors.length];
 
     // 이 수강권의 시작일/종료일 계산
@@ -2202,7 +2321,11 @@ function renderTicketCard(m){
     var startFmt=h.date?h.date.replace(/-/g,'.'):'-';
 
     // 이 수강권에 해당하는 예약만 카운트 (표시용)
-    var ticketBooked=allocateBookingsV3(hist,allSessions,allSchs.filter(sc=>sc.memberId===m.id&&!sc.done&&!sc.cancelled))[i]||0;
+    var ticketBooked=allSchs.filter(function(s){
+      if(s.memberId!==m.id||s.done)return false;
+      var st=new Date((s.date||'')+'T00:00:00').getTime();
+      return st>=ticketStartTs&&st<ticketEndTs;
+    }).length;
     // 완료 건수는 표시(informational)용으로 날짜창 기준 집계
     var ticketCompleted=allocT[i]||0; // 기간 밖 기록도 포함해 총합이 맨 위 잔여와 일치
 
@@ -2298,28 +2421,47 @@ function renderTicketCard(m){
   });
 }
 
-async function clearUnpaid(mid,ticketIdx){
- const shown=loadM().find(m=>m.id===mid)?.renewHistory[ticketIdx];if(!shown)return;
- if(!confirm('실제 입금 또는 면제 처리가 확인됐나요? 미수금만 0원으로 바꾸며 입금일별 수납 통계는 생성하지 않습니다.'))return;
- if(!await prepareServerChange())return;
- const ms=loadM(),m=ms.find(x=>x.id===mid),h=m?.renewHistory.find(h=>h.id===shown.id);if(!h)return;
- h.unpaidAmount=0;if(await saveM(ms)){if(curDet===mid)showDetail(mid);else renderHome();}else alert('미수금 저장 결과를 확인해주세요.');
+function clearUnpaid(mid, ticketIdx){
+  if(!confirm('이 수강권의 미수금을 해결 처리할까요?'))return;
+  const ms=loadM();
+  const mi=ms.findIndex(x=>x.id===mid);
+  if(mi<0)return;
+  migrateRenewHistory(ms[mi]);
+  if(ms[mi].renewHistory[ticketIdx]){
+    ms[mi].renewHistory[ticketIdx].unpaidAmount=0;
+    saveM(ms);
+    if(curDet===mid)showDetail(mid);else renderHome();
+  }
 }
-async function clearUnpaidByMember(mid){
- if(!await prepareServerChange())return;
- const ms=loadM(),m=ms.find(x=>x.id===mid);if(!m)return;
- const total=m.renewHistory.reduce((sum,h)=>sum+numberV3(h.unpaidAmount),0);
- if(!confirm('실제 입금·면제 확인 후 미수금 '+total.toLocaleString('ko-KR')+'원을 정리할까요? 입금내역을 새로 생성하지 않습니다.'))return;
- m.renewHistory.forEach(h=>h.unpaidAmount=0);if(await saveM(ms))renderHome();else alert('미수금 저장 결과를 확인해주세요.');
+function clearUnpaidByMember(mid){
+  const ms=loadM();
+  const mi=ms.findIndex(x=>x.id===mid);
+  if(mi<0)return;
+  migrateRenewHistory(ms[mi]);
+  const unpaidList=(ms[mi].renewHistory||[]).filter(h=>h.unpaidAmount>0);
+  if(!unpaidList.length)return;
+  const total=unpaidList.reduce((s,h)=>s+(h.unpaidAmount||0),0);
+  if(!confirm(ms[mi].name+'님 미수금 '+total.toLocaleString('ko-KR')+'원을 해결 처리할까요?'))return;
+  ms[mi].renewHistory.forEach(h=>{h.unpaidAmount=0;});
+  saveM(ms);
+  renderHome();
 }
 
-async function deleteTicket(mid,ticketIdx){
- const shown=loadM().find(m=>m.id===mid)?.renewHistory[ticketIdx];if(!shown)return;const id=shown.id;
- if(!await prepareServerChange())return;
- const ms=loadM(),m=ms.find(x=>x.id===mid);if(!m)return;const i=m.renewHistory.findIndex(h=>h.id===id);if(i<0){alert('이미 삭제된 수강권입니다.');return;}
- if(ticketUsedAt(m,i)>0){alert('사용한 수강권은 삭제할 수 없습니다. 실제 출석을 먼저 대조해주세요.');return;}
- if(!confirm('미사용 수강권을 삭제할까요? 결제 취소가 맞는지 확인해주세요. 등록금액 통계도 줄어듭니다.'))return;
- m.renewHistory.splice(i,1);if(await saveM(ms))showDetail(mid);
+function deleteTicket(mid, ticketIdx){
+  if(!confirm('이 수강권을 삭제할까요?\n삭제하면 복구할 수 없습니다.'))return;
+  var ms=loadM();
+  var mi=ms.findIndex(function(x){return x.id===mid;});
+  if(mi<0)return;
+  migrateRenewHistory(ms[mi]);
+  var h=ms[mi].renewHistory[ticketIdx];
+  if(!h)return;
+  // 해당 수강권만 삭제
+  ms[mi].renewHistory.splice(ticketIdx,1);
+  // total/used 재계산 (전체 renewHistory 합산)
+  ms[mi].total=ms[mi].renewHistory.reduce(function(s,r){return s+(r.count||0);},0);
+  ms[mi].used=ms[mi].renewHistory.reduce(function(s,r){return s+(r.used||0);},0);
+  saveM(ms);
+  showDetail(mid);
 }
 
 function editTicket(mid, ticketIdx){
@@ -2333,15 +2475,13 @@ function editTicket(mid, ticketIdx){
   document.getElementById('mr-mid').value=mid;
   document.getElementById('mr-sub').textContent=ms[mi].name+' 회원 · 수강권 수정';
   document.getElementById('mr-total').value=h.count||'';
-  document.getElementById('mr-remain-row').style.display='none';
-  document.getElementById('mr-total').readOnly=ticketUsedAt(ms[mi],ticketIdx)>0;
-  document.getElementById('modal-renew').dataset.ticketSnapshot=JSON.stringify(h);
+  document.getElementById('mr-remain-row').style.display='block';
   var completedNow=ticketUsedAt(ms[mi],ticketIdx);
   var prefillRemain=Math.max(0,(h.count||0)-completedNow);
   document.getElementById('mr-remain').value=prefillRemain;
   document.getElementById('modal-renew').dataset.prefillRemain=prefillRemain; // 사용자가 실제로 값을 바꿨는지 판단용
   // rawPrice가 저장돼 있으면 그대로, 없는 예전 데이터는 discount%로 원가를 역산해서 추정
-  var estRawPrice=h.rawPrice!=null?h.rawPrice:(h.discount>0&&h.discount<100?Math.round((h.price||0)/(1-h.discount/100)):h.price);
+  var estRawPrice=h.rawPrice!=null?h.rawPrice:(h.discount?Math.round((h.price||0)/(1-h.discount/100)):h.price);
   document.getElementById('mr-price').value=estRawPrice||'';
   document.getElementById('mr-weekly').value=h.weekly||2;
   mrDaysManual=true;
@@ -2391,8 +2531,6 @@ function closeOv(id){
 function closeOvOut(e,id){if(e.target===document.getElementById(id))closeOv(id);}
 
 function openAddModal(){
- document.getElementById('modal-member').dataset.newMemberId=uid();
-  ['total','price','start','weekly','days'].forEach(k=>document.getElementById('mm-'+k).disabled=false);
   document.getElementById('mm-id').value='';
   document.getElementById('mm-title').textContent='회원 등록';
   document.getElementById('mm-del-btn').style.display='none';
@@ -2408,10 +2546,9 @@ function openAddModal(){
   document.getElementById('modal-member').classList.add('open');
 }
 function openEditModal(id){
-  ['total','price','start','weekly','days'].forEach(k=>document.getElementById('mm-'+k).disabled=true);
   const m=loadM().find(x=>x.id===id);if(!m)return;
   document.getElementById('mm-id').value=id;
-  document.getElementById('mm-title').textContent=`${m.name} — 정보 수정 (수강권은 별도 수정)`;
+  document.getElementById('mm-title').textContent=`${m.name} — 수정`;
   document.getElementById('mm-del-btn').style.display='block';
   document.getElementById('mm-name').value=m.name||'';
   document.getElementById('mm-phone').value=m.phone||'';
@@ -2436,7 +2573,6 @@ function openEditModal(id){
   // 저장 시 반영되는 대상(현재 사용 중인 수강권)의 값으로 채움.
   // (예전에는 첫 수강권 값/마지막 결제금액으로 채운 뒤 현재 수강권에 덮어써서,
   //  메모만 고쳐도 기간·금액이 바뀌어 잔여/통계가 어긋났음)
-  document.getElementById('modal-member').dataset.profileSnapshot=JSON.stringify(m);
   const atE=getActiveTicket(m);
   const hl=m.renewHistory||[];
   const tgtE=(atE?atE.ticket:hl[hl.length-1])||{};
@@ -2452,42 +2588,59 @@ function openEditModal(id){
   });
   document.getElementById('modal-member').classList.add('open');
 }
-async function saveMember(btn){
- if(btn&&btn.disabled)return;if(btn)btn.disabled=true;
- try{
-  if(!await prepareServerChange())return;
-  const get=id=>document.getElementById('mm-'+id).value;
-  const name=get('name').trim();if(!name)throw Error('이름을 입력해주세요.');
-  const id=get('id')||document.getElementById('modal-member').dataset.newMemberId,ms=loadM(),old=ms.find(m=>m.id===id);
-  if(!get('id')&&old){closeOv('modal-member');alert('이미 저장된 회원입니다.');return;}
-  const profile={id,name,phone:get('phone').trim(),classtype:get('classtype'),goal:get('goal').trim(),memo:get('memo').trim(),birthday:get('birthday')||''};
-  let m;
-  if(old){
-   const baseline=JSON.parse(document.getElementById('modal-member').dataset.profileSnapshot||'null');if(!baseline)throw Error('수정창을 다시 열어주세요.');
-   m={...old};for(const key of ['name','phone','classtype','goal','memo','birthday']){
-    if((profile[key]||'')===(baseline[key]||''))continue;
-    if((old[key]||'')!==(baseline[key]||'')&&(old[key]||'')!==(profile[key]||''))throw Error('다른 기기에서 '+key+' 항목이 변경됐습니다. 수정창을 다시 열어주세요.');
-    m[key]=profile[key];
-   }
+function saveMember(btn){
+  if(btn&&btn.disabled)return;
+  const name=document.getElementById('mm-name').value.trim();
+  const total=parseInt(document.getElementById('mm-total').value)||0;
+  if(!name){alert('이름을 입력해주세요.');return;}
+  if(!total){alert('총 횟수를 입력해주세요.');return;}
+  if(btn)btn.disabled=true;
+  const id=document.getElementById('mm-id').value||uid();
+  const ms=loadM(),existing=ms.find(x=>x.id===id);
+  const startDate=document.getElementById('mm-start').value||localDateStr();
+  const price=parseInt(document.getElementById('mm-price').value)||0;
+  const weekly=parseInt(document.getElementById('mm-weekly').value)||2;
+  const days=parseInt(document.getElementById('mm-days').value)||calcSuggestedDays(total,weekly);
+  let renewHistory;
+  if(existing&&existing.renewHistory&&existing.renewHistory.length){
+    renewHistory=existing.renewHistory.slice();
+    const totalDelta=total-(existing.total||0);
+    // 가장 오래된 수강권이 아니라, 현재 사용 중(잔여 있는)인 수강권을 대상으로 함.
+    // 잔여가 전혀 없으면(모두 소진) 가장 최근 수강권을 대상으로 함.
+    const at=getActiveTicket(existing);
+    const targetIdx=at?at.idx:renewHistory.length-1;
+    const target=renewHistory[targetIdx];
+    const completedM=ticketUsedAt(existing,targetIdx);
+    const newCount=Math.max(completedM,(target.count||0)+totalDelta);
+    // 폼에서 실제로 바꾼 항목만 수강권에 반영 (안 건드린 값은 기존 수강권 값 유지)
+    let pre={};try{pre=JSON.parse(document.getElementById('modal-member').dataset.pre||'{}');}catch(e){}
+    const upd={count:newCount};
+    if(pre.weekly===undefined||weekly!==pre.weekly)upd.weekly=weekly;
+    if(pre.days===undefined||days!==pre.days)upd.days=days;
+    if(pre.price===undefined||price!==pre.price)upd.price=price;
+    renewHistory[targetIdx]=Object.assign({},target,upd);
+  }else{
+    renewHistory=[{date:startDate,count:total,price,weekly,days}];
   }
-  else{
-   const count=intInputV3(get('total'),'횟수',1),price=intInputV3(get('price')||0,'금액');
-   const weekly=intInputV3(get('weekly'),'주당 횟수',1),days=intInputV3(get('days'),'기간',1);
-   m={...profile,total:count,used:0,start:get('start')||localDateStr(),price,renewHistory:[{id:'ticket:'+uid(),date:get('start')||localDateStr(),count,price,weekly,days,used:0}]};
-  }
-  const i=ms.findIndex(x=>x.id===id);if(i<0)ms.push(m);else ms[i]=m;
-  if(!await saveM(ms))throw Error('저장을 확인하지 못했습니다. 동기화 상태를 확인해주세요.');
-  closeOv('modal-member');if(curDet===id)showDetail(id);else renderDash();
- }catch(e){alert(e.message);}finally{if(btn)btn.disabled=false;}
+  const data={id,name,phone:document.getElementById('mm-phone').value.trim(),total,used:existing?existing.used:0,start:startDate,price,classtype:document.getElementById('mm-classtype').value,goal:document.getElementById('mm-goal').value.trim(),memo:document.getElementById('mm-memo').value.trim(),birthday:document.getElementById('mm-birthday').value||'',renewHistory};
+  const idx=ms.findIndex(x=>x.id===id);
+  if(idx>=0)ms[idx]=data;else ms.push(data);
+  saveM(ms);closeOv('modal-member');
+  if(btn)btn.disabled=false;
+  const av=document.querySelector('.view.active')?.id?.replace('view-','');
+  if(av==='detail')showDetail(id);else renderDash();
 }
-async function delMemberFromModal(){
- const id=document.getElementById('mm-id').value;if(!id)return;
- if(!confirm('회원을 보관 처리할까요? 기존 등록금액·출석은 통계에 유지되고 미완료 예약은 취소됩니다.'))return;
- if(await mutateV3('archive_member',{memberId:id})){closeOv('modal-member');gv('dash');}
+function delMemberFromModal(){
+  const id=document.getElementById('mm-id').value;if(!id)return;
+  const m=loadM().find(x=>x.id===id);
+  const name=m?m.name:'이 회원';
+  if(!confirm(`'${name}' 회원을 삭제할까요?\n회원 정보와 수업 기록이 모두 삭제되며 복구할 수 없습니다.`))return;
+  saveM(loadM().filter(x=>x.id!==id));
+  const ss=loadS();delete ss[id];saveS(ss);
+  closeOv('modal-member');gv('dash');
 }
 
 function openSessionModal(mid){
-  document.getElementById('modal-session').dataset.requestId='lesson:'+uid();
   const m=loadM().find(x=>x.id===mid);if(!m)return;
   if(remain(m)<=0){alert(`${m.name} 회원의 잔여 횟수가 0입니다.\n수강권 추가 후 수업을 기록해주세요.`);openRenewModal(mid);return;}
   document.getElementById('ms-mid').value=mid;
@@ -2522,7 +2675,6 @@ function openSessionModal(mid){
 }
 
 function editSessionRecord(mid,sid){
-  document.getElementById('modal-session').dataset.requestId='edit:'+uid();
   const m=loadM().find(x=>x.id===mid);if(!m)return;
   const ss=loadS();
   const list=ss[mid]||[];
@@ -2551,34 +2703,146 @@ function editSessionRecord(mid,sid){
   document.getElementById('modal-session').classList.add('open');
 }
 async function saveSession(btn){
- if(btn&&btn.disabled)return;if(btn)btn.disabled=true;
- try{
-  const get=k=>document.getElementById('ms-'+k).value,mid=get('mid'),sid=get('sid');
-  const ts=new Date(get('date')+'T'+(get('time')||'10:00')+':00').getTime();if(!Number.isFinite(ts))throw Error('날짜·시간을 확인해주세요.');
-  const payload={memberId:mid,ts,type:get('type'),note:get('note').trim()};
-  if(sid)payload.sessionId=sid;
-  else payload.unpaidAmount=document.getElementById('ms-unpaid').checked?intInputV3(get('unpaid-amount')||0,'미수금'):0;
-  const modal=document.getElementById('modal-session');
-  if(!modal.dataset.requestId)modal.dataset.requestId='lesson:'+uid();
-  const ok=await mutateV3(sid?'edit_session':'manual',payload,modal.dataset.requestId);
-  if(ok){delete modal.dataset.requestId;closeOv('modal-session');if(curDet===mid)showDetail(mid);else renderDash();}
- }catch(e){alert(e.message);}finally{if(btn)btn.disabled=false;}
-}
-window.delSes=async function(mid,sid){return deleteLessonV3(mid,sid);};
+  if(btn&&btn.disabled)return;
+  const mid=document.getElementById('ms-mid').value;
+  const sid=document.getElementById('ms-sid').value;
+  const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
+  const msDate=document.getElementById('ms-date').value;
+  const msTime=document.getElementById('ms-time').value||'10:00';
+  const msTsRaw=msDate?new Date(msDate+'T'+msTime+':00').getTime():Date.now();
+  const msTs=isNaN(msTsRaw)?Date.now():msTsRaw;
+  const msType=document.getElementById('ms-type').value;
+  const msNote=document.getElementById('ms-note').value.trim();
+  const msUnpaidChecked=document.getElementById('ms-unpaid').checked;
+  const msUnpaidAmount=msUnpaidChecked?(parseInt(document.getElementById('ms-unpaid-amount').value)||0):0;
 
-async function deleteSession(mid,sid){return deleteLessonV3(mid,sid);}
+  // 수정 모드: 횟수 변동 없이 날짜/시간/유형/노트만 갱신
+  if(sid){
+    if(btn)btn.disabled=true;
+    const ss=loadS();
+    const list=ss[mid]||[];
+    const i=list.findIndex(function(x){return(x.id?x.id:('_'+x.ts))===sid;});
+    if(i<0){alert('기록을 찾을 수 없습니다.');if(btn)btn.disabled=false;return;}
+    list[i]=Object.assign({},list[i],{ts:msTs,type:msType,note:msNote});
+    ss[mid]=list;
+    saveS(ss);
+    closeOv('modal-session');
+    if(btn)btn.disabled=false;
+    if(curDet===mid)showDetail(mid);else renderDash();
+    return;
+  }
+
+  const lockKey='manual_'+mid;
+  if(_deductInFlight.has(lockKey)){alert('처리 중입니다. 잠시만 기다려주세요.');return;}
+  _deductInFlight.add(lockKey);
+  if(btn)btn.disabled=true;
+  try{
+    const s=await refreshSessionIfNeeded();
+    if(!s||!s.user_id){alert('로그인이 필요합니다.');return;}
+    if(!await prepareServerChange())return;
+    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session_manual',{
+      method:'POST',
+      headers:{
+        'apikey':SB_KEY,
+        'Authorization':'Bearer '+s.access_token,
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify({
+        p_owner_id:s.user_id,
+        p_member_id:mid,
+        p_session_type:msType,
+        p_session_ts:msTs,
+        p_note:msNote
+      })
+    });
+    const result=await res.json();
+    if(!res.ok||result.ok===false){
+      console.error('[수동차감] 실패:',result);
+      if(result.error==='no remaining sessions'){
+        alert('잔여 횟수가 없어 수업을 기록할 수 없습니다.\n수강권을 먼저 추가해주세요.');
+      }else{
+        alert('처리 실패: '+(result.error||'서버 오류'));
+      }
+      return;
+    }
+    const refreshed=await syncFromCloud(true);
+    if(!refreshed){
+      closeOv('modal-session');
+      alert('서버에서 수업 저장은 완료됐지만 최신 기록을 불러오지 못했습니다. 같은 수업을 다시 등록하지 말고 동기화를 확인해주세요.'+(msUnpaidChecked&&msUnpaidAmount>0?' 미수금 '+msUnpaidAmount.toLocaleString('ko-KR')+'원은 아직 반영되지 않았습니다.':''));
+      return;
+    }
+    if(msUnpaidChecked&&msUnpaidAmount>0){
+      const ms2=loadM();
+      const idx2=ms2.findIndex(x=>x.id===mid);
+      if(idx2>=0){
+        migrateRenewHistory(ms2[idx2]);
+        const at2=getActiveTicket(ms2[idx2]);
+        const targetIdx2=at2?at2.idx:(ms2[idx2].renewHistory.length-1);
+        if(ms2[idx2].renewHistory[targetIdx2]){
+          ms2[idx2].renewHistory[targetIdx2].unpaidAmount=(ms2[idx2].renewHistory[targetIdx2].unpaidAmount||0)+msUnpaidAmount;
+          saveM(ms2);
+        }
+      }
+    }
+    closeOv('modal-session');
+    if(curDet===mid)showDetail(mid);else renderDash();
+  }catch(e){
+    console.error('[수동차감] 네트워크 오류:',e);
+    alert('네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  }finally{
+    _deductInFlight.delete(lockKey);
+    if(btn)btn.disabled=false;
+  }
+}
+window.delSes=async function(mid,sid){
+  if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
+  if(!await prepareServerChange())return; // 삭제 전 최신 데이터 확보 (blob 덮어쓰기로 인한 타 세션 유실 방지)
+  var ss=loadS();
+  if(!ss[mid])return;
+  var before=ss[mid].length;
+  ss[mid]=ss[mid].filter(function(s){
+    if(s.id)return s.id!==sid;
+    return('_'+s.ts)!==sid;
+  });
+  saveS(ss);
+  if(ss[mid].length<before){
+    var ms=loadM();
+    var idx=ms.findIndex(function(x){return x.id===mid;});
+    if(idx>=0){migrateRenewHistory(ms[idx]);restoreTicket(ms[idx]);saveM(ms);}
+  }
+  if(curDet===mid)showDetail(mid);else renderDash();
+};
+
+async function deleteSession(mid,sid){
+  if(!confirm('이 수업 기록을 삭제하고 횟수를 1회 복원할까요?'))return;
+  if(!await prepareServerChange())return; // 삭제 전 최신 데이터 확보
+  var ss=loadS();
+  if(!ss[mid])return;
+  var before=ss[mid].length;
+  ss[mid]=ss[mid].filter(function(s){
+    // id 필드 있으면 id로 비교, 없으면 _ts로 비교
+    if(s.id){return s.id!==sid;}
+    return('_'+s.ts)!==sid;
+  });
+  var after=ss[mid].length;
+  saveS(ss);
+  if(before!==after){
+    // 실제로 삭제됐을 때만 횟수 복원
+    var ms=loadM();
+    var idx=ms.findIndex(function(x){return x.id===mid;});
+    if(idx>=0){migrateRenewHistory(ms[idx]);restoreTicket(ms[idx]);saveM(ms);}
+  }
+  if(curDet===mid)showDetail(mid);else renderDash();
+}
 
 function openRenewModal(mid){
- document.getElementById('modal-renew').dataset.newTicketId='ticket:'+uid();
-  document.getElementById('mr-total').readOnly=false;
-  delete document.getElementById('modal-renew').dataset.ticketSnapshot;
   const m=loadM().find(x=>x.id===mid);if(!m)return;
   delete document.getElementById('modal-renew').dataset.editIdx; // 이전에 취소된 '수정' 모드가 남아있지 않도록 초기화
   delete document.getElementById('modal-renew').dataset.prefillRemain;
   document.getElementById('mr-remain-row').style.display='none';
   document.getElementById('mr-mid').value=mid;
   document.getElementById('mr-sub').textContent=`${m.name} 회원 · 현재 잔여 ${remain(m)}회`;
-  document.getElementById('mr-total').value=((m.renewHistory||[]).slice(-1)[0]||{}).count||10;
+  document.getElementById('mr-total').value=m.total||10;
   document.getElementById('mr-price').value=m.price||'';
   const lastTicket=(m.renewHistory&&m.renewHistory[m.renewHistory.length-1])||{};
   document.getElementById('mr-weekly').value=lastTicket.weekly||2;
@@ -2594,49 +2858,120 @@ function openRenewModal(mid){
   autoCalcMrDays();
   document.getElementById('modal-renew').classList.add('open');
 }
-async function saveRenew(btn){
- if(btn&&btn.disabled)return;if(btn)btn.disabled=true;
- try{
-  if(!await prepareServerChange())return;
-  const modal=document.getElementById('modal-renew'),get=k=>document.getElementById('mr-'+k).value;
-  const mid=get('mid'),ms=loadM(),m=ms.find(x=>x.id===mid);if(!m)throw Error('회원 없음');
-  const count=intInputV3(get('total'),'횟수',1),rawPrice=intInputV3(get('price')||0,'금액');
-  const discount=Number(get('discount')||0);if(!Number.isFinite(discount)||discount<0||discount>100)throw Error('할인율은 0~100입니다.');
-  const edit=modal.dataset.editIdx!==undefined&&modal.dataset.editIdx!=='';
-  let i=-1,old=null;
-  if(edit){
-   old=JSON.parse(modal.dataset.ticketSnapshot||'null');if(!old)throw Error('수정창을 다시 열어주세요.');
-   i=m.renewHistory.findIndex(h=>h.id===old.id);
-   if(i<0||!sameData(old,m.renewHistory[i]))throw Error('수강권이 변경됐습니다. 창을 닫고 다시 열어주세요.');
-   if(ticketUsedAt(m,i)>0&&count!==numberV3(old.count))throw Error('사용한 수강권의 횟수는 변경할 수 없습니다.');
+function saveRenew(btn){
+  if(btn&&btn.disabled)return;
+  const modal=document.getElementById('modal-renew');
+  const editIdx=modal.dataset.editIdx;
+  if(editIdx!==undefined&&editIdx!==''){
+    // 수정 모드
+    const mid=document.getElementById('mr-mid').value;
+    const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
+    migrateRenewHistory(ms[idx]);
+    const h=ms[idx].renewHistory[parseInt(editIdx)];
+    if(!h)return;
+    if(btn)btn.disabled=true;
+    const inputCount=parseInt(document.getElementById('mr-total').value)||0;
+    if(!inputCount){
+      alert('횟수를 입력해주세요.');
+      if(btn)btn.disabled=false;return;
+    }
+    const completedNow=ticketUsedAt(ms[idx],parseInt(editIdx));
+    const remainInput=document.getElementById('mr-remain').value;
+    const prefillRemain=parseInt(modal.dataset.prefillRemain);
+    const remainChanged=remainInput!==''&&parseInt(remainInput)!==prefillRemain;
+    let newCount,newRemain;
+    if(remainChanged){
+      // 사용자가 "잔여"를 직접 바꿈 → 실제 이용내역 수(completedNow)는 그대로 두고, 횟수(count)를 역산
+      newRemain=Math.max(0,parseInt(remainInput)||0);
+      newCount=completedNow+newRemain;
+    }else{
+      // "잔여"는 안 건드리고 "횟수"만 바꿈(또는 둘 다 안 바꿈) → 횟수 입력값을 그대로 사용
+      newCount=inputCount;
+      newRemain=Math.max(0,newCount-completedNow);
+    }
+    if(newCount<completedNow){
+      alert('횟수('+newCount+'회)가 이미 완료된 수업 수('+completedNow+'회)보다 적습니다.\n완료된 수업 수 이상으로 입력해주세요.');
+      if(btn)btn.disabled=false;return;
+    }
+    const price=parseInt(document.getElementById('mr-price').value)||0;
+    const discount=parseInt(document.getElementById('mr-discount').value)||0;
+    const finalPrice=Math.round(price*(1-discount/100));
+    // renewHistory 업데이트
+    h.count=newCount;
+    h.used=completedNow; // 참고용으로만 유지(실제 잔여 판단 기준은 이용내역 수, used는 더 이상 신뢰 기준 아님)
+    h.price=finalPrice;
+    h.rawPrice=price; // 할인 전 원가를 별도 보관 (재수정 시 할인 중복적용 방지용)
+    h.weekly=parseInt(document.getElementById('mr-weekly').value)||2;
+    h.days=parseInt(document.getElementById('mr-days').value)||90;
+    h.date=document.getElementById('mr-start').value||localDateStr();
+    h.trainer=document.getElementById('mr-trainer').value.trim();
+    h.payment=document.getElementById('mr-payment').value;
+    h.discount=discount;
+    h.memo=document.getElementById('mr-memo').value.trim();
+    h.unpaidAmount=document.getElementById('mr-unpaid').checked?parseInt(document.getElementById('mr-unpaid-amount').value)||0:0;
+    // total/used를 renewHistory 전체 재합산으로 정확하게 계산
+    ms[idx].total=ms[idx].renewHistory.reduce(function(s,r){return s+(r.count||0);},0);
+    ms[idx].used=ms[idx].renewHistory.reduce(function(s,r){return s+(r.used||0);},0);
+    saveM(ms);
+    delete modal.dataset.editIdx;
+    closeOv('modal-renew');
+    if(btn)btn.disabled=false;
+    if(curDet===mid)showDetail(mid);else renderDash();
+    return;
   }
-  const h={...(old||{}),id:old?old.id:modal.dataset.newTicketId,date:get('start')||localDateStr(),count,
-   rawPrice,price:Math.round(rawPrice*(1-discount/100)),discount,weekly:intInputV3(get('weekly'),'주당 횟수',1),
-   days:intInputV3(get('days'),'기간',1),trainer:get('trainer').trim(),payment:get('payment'),memo:get('memo').trim(),
-   unpaidAmount:document.getElementById('mr-unpaid').checked?intInputV3(get('unpaid-amount')||0,'미수금'):0};
-  if(edit)m.renewHistory[i]=h;else {if(m.renewHistory.some(x=>x.id===h.id)){closeOv('modal-renew');alert('이미 저장된 수강권입니다.');return;}m.renewHistory.push(h);m.price=h.price;m.start=h.date;}
-  if(!await saveM(ms))throw Error('저장 확인이 필요합니다. 같은 수강권을 다시 추가하지 말고 동기화를 확인해주세요.');
-  closeOv('modal-renew');if(curDet===mid)showDetail(mid);else renderDash();
- }catch(e){alert(e.message);}finally{if(btn)btn.disabled=false;}
+  delete modal.dataset.editIdx;
+  const mid=document.getElementById('mr-mid').value;
+  const addCount=parseInt(document.getElementById('mr-total').value)||0;
+  if(!addCount){alert('추가 횟수를 입력해주세요.');return;}
+  const ms=loadM(),idx=ms.findIndex(x=>x.id===mid);if(idx<0)return;
+  if(btn)btn.disabled=true;
+  const price=parseInt(document.getElementById('mr-price').value)||0;
+  const discount=parseInt(document.getElementById('mr-discount').value)||0;
+  const finalPrice=Math.round(price*(1-discount/100));
+  const days=parseInt(document.getElementById('mr-days').value)||90;
+  const weekly=parseInt(document.getElementById('mr-weekly').value)||2;
+  const startDate=document.getElementById('mr-start').value||localDateStr();
+  const trainer=document.getElementById('mr-trainer').value.trim();
+  const payment=document.getElementById('mr-payment').value;
+  // 새 수강권 추가 - total/used는 누적 유지, renewHistory로 독립 관리
+  ms[idx].total=(ms[idx].total||0)+addCount;ms[idx].price=finalPrice;
+  ms[idx].start=startDate;
+  if(trainer)ms[idx].designer=trainer;
+  // start는 위에서 이미 설정됨
+  if(!ms[idx].renewHistory)ms[idx].renewHistory=[];
+  const unpaidAmount=document.getElementById('mr-unpaid').checked?parseInt(document.getElementById('mr-unpaid-amount').value)||0:0;
+  ms[idx].renewHistory.push({date:startDate,count:addCount,used:0,price:finalPrice,rawPrice:price,days:days,weekly:weekly,payment:payment,discount:discount,trainer:trainer,unpaidAmount:unpaidAmount,memo:document.getElementById('mr-memo').value.trim()});
+  saveM(ms);closeOv('modal-renew');
+  if(btn)btn.disabled=false;
+  if(curDet===mid)showDetail(mid);else renderDash();
+  alert(`🌸 ${ms[idx].name} 수강권 추가 완료! ${addCount}회 추가됐습니다.`);
 }
 
 function doBackup(){
- const payload={version:3,ownerId:getSession()?.user_id,members:loadAllM(),sessions:loadS(),schedules:loadAllSch(),exportedAt:new Date().toISOString()};
- downloadV3(payload,'pilates_backup_'+localDateStr()+'.json');localStorage.setItem(BK_KEY,String(Date.now()));
+  const payload={members:loadM(),sessions:loadS(),schedules:loadSch(),recovery:Object.fromEntries([SK,SK2,SK3].map(k=>[k,JSON.parse(localStorage.getItem(k+'_recovery_v2')||'[]')])),exportedAt:new Date().toISOString()};
+  const a=document.createElement('a');
+  a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(payload,null,2));
+  a.download=`필라테스회원관리_백업_${new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','')}.json`;
+  a.click();
+  localStorage.setItem(BK_KEY,Date.now().toString());
 }
 function doRestore(){
- const input=document.createElement('input');input.type='file';input.accept='.json';
- input.onchange=async()=>{try{
-  const file=input.files[0];if(!file)return;const backup=JSON.parse(await file.text());
-  if(!Array.isArray(backup.members)||!backup.sessions||!Array.isArray(backup.schedules))throw Error('회원·출석·예약이 모두 있는 완전한 JSON 백업이 필요합니다.');
-  if(!await prepareServerChange())return;
-  const snap=await callV3('snapshot');if(!snap.ok)throw Error(snap.error);
-  const lessons=Object.values(backup.sessions).reduce((sum,list)=>sum+(Array.isArray(list)?list.length:0),0);
-  if(!confirm('모든 기존 앱 탭을 닫으셨나요? 백업의 회원 '+backup.members.length+'명 / 수업 '+lessons+'건 / 예약 '+backup.schedules.length+'건으로 현재 자료 전체를 교체합니다. 백업 이후 추가된 자료는 현재 화면에서 제외됩니다. 서버 원본을 먼저 내려받은 후 계속할까요?'))return;
-  downloadV3(snap,'pilates_before_restore_'+localDateStr()+'.json');
-  const ok=await mutateV3('restore',{confirm:true,backup,expected:{members:snap.members,sessions:snap.sessions,schedules:snap.schedules}});
-  if(ok){alert('서버에서 회원·출석·예약을 함께 복원했습니다.');location.reload();}
- }catch(e){alert('복원 중단: '+e.message);}};input.click();
+  const input=document.createElement('input');input.type='file';input.accept='.json';
+  input.onchange=e=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const data=JSON.parse(ev.target.result);
+        if(!data.members)throw new Error('올바른 백업 파일이 아닙니다.');
+        if(!confirm(`백업 파일에서 회원 ${data.members.length}명을 복원합니다.\n현재 데이터는 덮어씌워집니다. 계속할까요?`))return;
+        saveM(data.members);if(data.sessions)saveS(data.sessions);if(data.schedules)saveSch(data.schedules);
+        alert('✅ 복원 완료!');gv('dash');
+      }catch(err){alert('복원 실패: '+err.message);}
+    };
+    reader.readAsText(file);
+  };
+  input.click();
 }
 
 // ── 커스텀 달력 ──
@@ -2957,9 +3292,8 @@ function initSchTime(start,end){
 const SK3='pilates_schedules_v1';
 // 같은 schedule_id에 대해 여러 경로(수동버튼/자동완료/타이머)가 동시에 deduct_session을 부르는 걸 막는 공유 잠금
 const _deductInFlight=new Set();
-const loadAllSch=()=>{try{return JSON.parse(localStorage.getItem(SK3))||[];}catch{return[];}};
-const loadSch=()=>loadAllSch().filter(s=>!s.cancelled);
-const saveSch=a=>{const ids=new Set(a.map(s=>s.id));storeLocal(SK3,a.concat(loadAllSch().filter(s=>s.cancelled&&!ids.has(s.id))));return queueSave(SK3,'schedules');};
+const loadSch=()=>{try{return JSON.parse(localStorage.getItem(SK3))||[];}catch{return[];}};
+const saveSch=a=>{storeLocal(SK3,a);return queueSave(SK3,'schedules');};
 
 // ── 캘린더 뷰 ──
 let calViewYear=new Date().getFullYear();
@@ -3131,8 +3465,64 @@ function renderDaySchedule(dateStr){
 }
 
 async function completeScheduleSession(schedId,memberId,type,btn){
- if(btn&&btn.disabled)return;if(!confirm('이 예약을 완료하고 1회 차감할까요? 이미 처리된 예약은 다시 차감되지 않습니다.'))return;
- if(btn)btn.disabled=true;try{await mutateV3('complete',{scheduleId:schedId,memberId});}finally{if(btn)btn.disabled=false;}refreshCurrentView();
+  const m=loadM().find(x=>x.id===memberId);
+  if(!m){alert('회원 정보를 찾을 수 없습니다.');return;}
+  if(remain(m)<=0){alert(m.name+' 회원의 잔여 횟수가 0입니다.');return;}
+  if(_deductInFlight.has(schedId)){alert('처리 중입니다. 잠시만 기다려주세요.');return;}
+  if(!confirm(m.name+' 님 수업을 완료 처리할까요? (잔여 '+remain(m)+'회 → '+(remain(m)-1)+'회)')){return;}
+  if(_deductInFlight.has(schedId)){alert('처리 중입니다. 잠시만 기다려주세요.');return;}
+  _deductInFlight.add(schedId);
+  if(btn)btn.disabled=true;
+  const s=await refreshSessionIfNeeded();
+  if(!s||!s.user_id){alert('로그인이 필요합니다.');_deductInFlight.delete(schedId);if(btn)btn.disabled=false;return;}
+  try{
+    // 기록 시각은 "버튼 누른 시각"이 아니라 "일정의 실제 수업 일시" 기준
+    // (다음날 완료 처리해도 수업한 날짜로 기록되도록)
+    const schObj=loadSch().find(function(x){return x.id===schedId;});
+    let sessTs=Date.now();
+    if(schObj&&schObj.date){
+      const t=schObj.endTime||schObj.startTime||'12:00';
+      const dt=new Date(schObj.date+'T'+t+':00').getTime();
+      if(!isNaN(dt))sessTs=dt;
+    }
+    if(!await prepareServerChange())return;
+    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
+      method:'POST',
+      headers:{
+        'apikey':SB_KEY,
+        'Authorization':'Bearer '+s.access_token,
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify({
+        p_owner_id:s.user_id,
+        p_schedule_id:schedId,
+        p_member_id:memberId,
+        p_session_type:type||'기구 필라테스 (개인)',
+        p_session_ts:sessTs
+      })
+    });
+    const result=await res.json();
+    if(!res.ok||result.ok===false){
+      console.error('[서버차감] 실패:',result);
+      alert('처리 실패: '+(result.error||'서버 오류'));
+      return;
+    }
+    if(result.skipped){
+      alert('이미 처리된 수업입니다.');
+    }else{
+      // 로컬 데이터 즉시 갱신 (서버 처리 후 동기화)
+      await syncFromCloud(true);
+      alert('✅ 수업 완료 처리됐습니다!');
+    }
+    renderCalView();
+    if(typeof renderHome==='function')renderHome();
+  }catch(e){
+    console.error('[서버차감] 네트워크 오류:',e);
+    alert('네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  }finally{
+    _deductInFlight.delete(schedId);
+    if(btn)btn.disabled=false;
+  }
 }
 
 // ── 반복 일정 등록 ──
@@ -3169,7 +3559,6 @@ function startOfWeek(d){
 }
 
 function openScheduleModal(date,schedId){
- document.getElementById('modal-schedule').dataset.newScheduleId='schedule:'+uid();
   const ms=loadM();
   const memberOpts=ms.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
   const emptyOpt='<option value="">-- 회원 없음 (직접 입력) --</option>';
@@ -3222,8 +3611,7 @@ function onSchMemberChange(){
   }
 }
 
-async function saveSchedule(btn){
-  if(!await prepareServerChange())return;
+function saveSchedule(btn){
   if(btn&&btn.disabled)return;
   const memberId=document.getElementById('sch-member').value;
   const customName=document.getElementById('sch-custom-name').value.trim();
@@ -3296,8 +3684,8 @@ async function saveSchedule(btn){
         const wkDiff=Math.round((startOfWeek(cur)-startWk)/(7*86400000));
         if(wkDiff%interval===0){
           const dStr=cur.getFullYear()+'-'+String(cur.getMonth()+1).padStart(2,'0')+'-'+String(cur.getDate()).padStart(2,'0');
-          if(!schs.some(sc=>sc.id===document.getElementById('modal-schedule').dataset.newScheduleId+':'+dStr))schs.push({
-            id:document.getElementById('modal-schedule').dataset.newScheduleId+':'+dStr, memberId, memberName:member?member.name:customName,
+          schs.push({
+            id:uid(), memberId, memberName:member?member.name:customName,
             customName: member?'':customName,
             date:dStr, startTime, endTime, type, memo, done:false,
           });
@@ -3306,7 +3694,7 @@ async function saveSchedule(btn){
       }
       cur.setDate(cur.getDate()+1);
     }
-    if(!await saveSch(schs)){alert('일정 저장 확인이 필요합니다. 중복 등록하지 말고 동기화 상태를 확인해주세요.');if(btn)btn.disabled=false;return;}
+    saveSch(schs);
     closeOv('modal-schedule');
     if(btn)btn.disabled=false;
     calViewSelected=date;
@@ -3316,7 +3704,7 @@ async function saveSchedule(btn){
     return;
   }
 
-  const id=document.getElementById('sch-id').value||document.getElementById('modal-schedule').dataset.newScheduleId;
+  const id=document.getElementById('sch-id').value||uid();
   const idx=schs.findIndex(x=>x.id===id);
   const data={
     id, memberId, memberName:member?member.name:customName,
@@ -3325,7 +3713,7 @@ async function saveSchedule(btn){
     done: idx>=0?schs[idx].done:false, // 기존 완료 상태는 수정해도 유지
   };
   if(idx>=0)schs[idx]=data;else schs.push(data);
-  if(!await saveSch(schs)){alert('일정 저장 확인이 필요합니다. 중복 등록하지 말고 동기화 상태를 확인해주세요.');if(btn)btn.disabled=false;return;}
+  saveSch(schs);
   closeOv('modal-schedule');
   if(btn)btn.disabled=false;
   calViewSelected=date;
@@ -3334,9 +3722,32 @@ async function saveSchedule(btn){
 }
 
 async function deleteSchedule(){
- const id=document.getElementById('sch-id').value;if(!id)return;
- if(!confirm('이 일정을 삭제할까요? 연결된 수업기록이 정확히 확인되는 경우에만 함께 삭제하고 1회를 복원합니다.'))return;
- if(await mutateV3('delete_schedule',{scheduleId:id})){closeOv('modal-schedule');renderCalView();}
+  const id=document.getElementById('sch-id').value;if(!id)return;
+  // 서버 자동완료가 방금 done 처리했는데 로컬이 아직 모르는 상태로 삭제하면
+  // 수업기록만 고아로 남아 잔여가 영구 차감되므로, 최신 상태를 먼저 받아옴
+  if(!await prepareServerChange())return;
+  const sch=loadSch().find(x=>x.id===id);
+  const memberId=sch?.memberId;
+  const memberName=sch?.memberName||'회원';
+  const wasDone=!!sch?.done;
+  const msg=wasDone
+    ?'수업을 삭제하시겠습니까?\n삭제할 경우 '+memberName+'님의 잔여 횟수가 1회 복구되고, 관련 수업기록도 함께 삭제됩니다.'
+    :'수업을 삭제하시겠습니까?\n(아직 완료 처리 전이라 횟수 변동은 없습니다.)';
+  if(!confirm(msg))return;
+  if(memberId&&wasDone){
+    const ms=loadM();
+    const idx=ms.findIndex(x=>x.id===memberId);
+    if(idx>=0){migrateRenewHistory(ms[idx]);restoreTicket(ms[idx]);saveM(ms);}
+    // 이 일정(scheduleId)으로 생성된 수업기록도 같이 제거 (고아 기록 방지)
+    const ss=loadS();
+    if(ss[memberId]){
+      ss[memberId]=ss[memberId].filter(function(s){return s.scheduleId!==id;});
+      saveS(ss);
+    }
+  }
+  saveSch(loadSch().filter(x=>x.id!==id));
+  closeOv('modal-schedule');
+  renderCalView();
 }
 
 // ── 데이터 점검 (차감 누락 탐지·복구) ──
@@ -3351,18 +3762,56 @@ async function openAuditModal(){
   runAudit();
 }
 function runAudit(){
- const ms=loadAllM(),ss=loadS(),schs=loadSch();_auditItems=[];_auditExtra=[];
- for(const sc of schs){
-  if(!sc.done||sc.cancelled||!sc.memberId)continue;
-  const m=ms.find(x=>x.id===sc.memberId);if(!m)continue;
-  const linked=(ss[m.id]||[]).filter(r=>r.scheduleId===sc.id);
-  if(!linked.length){const candidates=(ss[m.id]||[]).filter(r=>!r.scheduleId&&localDateStr(new Date(r.ts))===sc.date);_auditItems.push({mid:m.id,name:m.name,date:sc.date,time:sc.endTime||sc.startTime,scheduleId:sc.id,type:sc.type,candidateId:candidates.length===1?candidates[0].id:null});}
- }
- for(const m of ms)for(const r of ss[m.id]||[]){
-  if(r.scheduleId&&schs.some(sc=>sc.id===r.scheduleId))continue;
-  const d=new Date(r.ts);_auditExtra.push({mid:m.id,name:m.name,date:localDateStr(d),time:d.toTimeString().slice(0,5),sid:r.id,note:r.note||'',doneCount:schs.filter(sc=>sc.memberId===m.id&&sc.done&&sc.date===localDateStr(d)).length,total:(ss[m.id]||[]).filter(x=>localDateStr(new Date(x.ts))===localDateStr(d)).length});
- }
- renderAuditResult();document.getElementById('audit-fixall-btn').style.display='none';_auditItems.forEach((it,i)=>{if(it.candidateId){const row=document.getElementById('audit-item-'+i);if(row){const b=document.createElement('button');b.textContent='기존 수업 연결 (추가 차감 없음)';b.onclick=()=>linkAuditV3(i);row.appendChild(b);}}});
+  const ms=loadM(), ss=loadS(), schs=loadSch();
+  const today=localDateStr();
+  _auditItems=[];
+  _auditExtra=[];
+  const done={}; // mid|date → 완료된 일정 목록
+  schs.forEach(function(s){
+    if(!s.done||!s.memberId||!s.date)return;
+    if(s.date>today)return;
+    const k=s.memberId+'|'+s.date;
+    (done[k]=done[k]||[]).push(s);
+  });
+  // 1) 차감 누락: 완료된 일정 수 > 수업 기록 수
+  Object.keys(done).forEach(function(k){
+    const parts=k.split('|'), mid=parts[0], date=parts[1];
+    const m=ms.find(function(x){return x.id===mid;});
+    if(!m)return;
+    const sesCount=(ss[mid]||[]).filter(function(x){return localDateStr(new Date(x.ts))===date;}).length;
+    const schedList=done[k];
+    const missing=schedList.length-sesCount;
+    if(missing>0){
+      const sorted=schedList.slice().sort(function(a,b){return(a.startTime||'').localeCompare(b.startTime||'');});
+      for(let i=0;i<missing;i++){
+        const sc=sorted[sorted.length-1-i]||sorted[0];
+        _auditItems.push({mid:mid,name:m.name,date:date,time:sc.startTime||'10:00',type:sc.type||'기구 필라테스 (개인)'});
+      }
+    }
+  });
+  // 2) 과다 차감 의심: 수업 기록 수 > 완료된 일정 수 (일정 없이 남은 기록)
+  //    수동으로 직접 넣은 정상 기록도 포함될 수 있으므로 "의심 건"으로 표시하고 삭제는 사용자가 판단
+  ms.forEach(function(m){
+    const byDate={};
+    (ss[m.id]||[]).forEach(function(x){
+      const d=localDateStr(new Date(x.ts));
+      (byDate[d]=byDate[d]||[]).push(x);
+    });
+    Object.keys(byDate).forEach(function(date){
+      const doneCount=(done[m.id+'|'+date]||[]).length;
+      const list=byDate[date];
+      if(list.length>doneCount){
+        list.slice().sort(function(a,b){return a.ts-b.ts;}).forEach(function(x){
+          const d=new Date(x.ts);
+          const hm=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+          _auditExtra.push({mid:m.id,name:m.name,date:date,time:hm,sid:x.id?x.id:('_'+x.ts),note:x.note||'',doneCount:doneCount,total:list.length});
+        });
+      }
+    });
+  });
+  _auditItems.sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+  _auditExtra.sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+  renderAuditResult();
 }
 let _auditExtra=[];
 function renderAuditResult(){
@@ -3372,7 +3821,7 @@ function renderAuditResult(){
   // 섹션 1: 차감 누락
   if(_auditItems.length){
     fixBtn.style.display='';
-    html+='<div style="font-size:12px;color:var(--yel);font-weight:700;margin-bottom:8px;">⚠ 예약 연결 확인 '+_auditItems.length+'건 — 완료 예약에 직접 연결된 기록이 없습니다. 기존 수업과 먼저 대조하세요.</div>'
+    html+='<div style="font-size:12px;color:var(--yel);font-weight:700;margin-bottom:8px;">⚠ 차감 누락 '+_auditItems.length+'건 — 일정은 완료됐지만 수업 기록이 없어 잔여가 차감되지 않은 건</div>'
       +_auditItems.map(function(it,i){
         return '<div id="audit-item-'+i+'" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--bd2);border-radius:10px;margin-bottom:8px;background:var(--s2);">'
         +'<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">'+it.name+'</div>'
@@ -3385,8 +3834,8 @@ function renderAuditResult(){
   }
   // 섹션 2: 과다 차감 의심 (일정 없이 존재하는 기록)
   if(_auditExtra.length){
-    html+='<div style="font-size:12px;color:var(--red);font-weight:700;margin:'+(_auditItems.length?'16px':'0')+' 0 4px;">🔍 예약 연결이 없는 기록 (정상 직접등록 포함) '+_auditExtra.length+'건 — 완료된 일정보다 기록이 많은 날짜의 기록들</div>'
-      +'<div style="font-size:11px;color:var(--mt);margin-bottom:8px;">예약이 없다는 이유만으로 오류가 아닙니다. 실제 출석과 대조한 뒤 잘못 등록한 것이 확실할 때만 삭제하세요.</div>'
+    html+='<div style="font-size:12px;color:var(--red);font-weight:700;margin:'+(_auditItems.length?'16px':'0')+' 0 4px;">🔍 일정 없는 수업 기록 '+_auditExtra.length+'건 — 완료된 일정보다 기록이 많은 날짜의 기록들</div>'
+      +'<div style="font-size:11px;color:var(--mt);margin-bottom:8px;">직접 입력한 정상 기록일 수도 있으니 확인 후 잘못된 것만 삭제하세요. 삭제 시 잔여 1회가 복원됩니다.</div>'
       +_auditExtra.map(function(it,i){
         return '<div id="audit-extra-'+i+'" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--redd);border-radius:10px;margin-bottom:8px;background:var(--s2);">'
         +'<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">'+it.name+'</div>'
@@ -3401,16 +3850,57 @@ function renderAuditResult(){
   }
   el.innerHTML=html;
 }
-async function deleteAuditSession(i,btn){const it=_auditExtra[i];if(!it)return;if(await deleteLessonV3(it.mid,it.sid)){runAudit();}}
+async function deleteAuditSession(i,btn){
+  const it=_auditExtra[i];
+  if(!it||it.fixed)return;
+  if(!confirm(it.name+'님 '+it.date+' '+it.time+' 기록을 삭제하고 잔여를 1회 복원할까요?\n(실제로 한 수업이면 삭제하지 마세요)'))return;
+  if(btn){btn.disabled=true;btn.textContent='처리 중...';}
+  if(!await prepareServerChange()){if(btn){btn.disabled=false;btn.textContent='🗑 삭제';}return;} // 최신 데이터 기준으로 삭제 (타 기기 변경 유실 방지)
+  const ss=loadS();
+  if(ss[it.mid]){
+    const before=ss[it.mid].length;
+    ss[it.mid]=ss[it.mid].filter(function(s){return(s.id?s.id:('_'+s.ts))!==it.sid;});
+    if(ss[it.mid].length<before){
+      saveS(ss);
+      const ms2=loadM();
+      const idx=ms2.findIndex(function(x){return x.id===it.mid;});
+      if(idx>=0){migrateRenewHistory(ms2[idx]);restoreTicket(ms2[idx]);saveM(ms2);}
+      it.fixed=true;
+      const row=document.getElementById('audit-extra-'+i);
+      if(row){row.style.opacity='0.55';if(btn){btn.textContent='✅ 삭제됨';}}
+      refreshCurrentView();
+      return;
+    }
+  }
+  if(btn){btn.disabled=false;btn.textContent='🗑 삭제';}
+  alert('기록을 찾을 수 없습니다. 점검을 다시 실행해주세요.');
+}
 async function fixMissingSession(it){
- try{if(!await prepareServerChange())return{ok:false,error:'동기화 실패'};
- const r=await callV3('repair',{scheduleId:it.scheduleId,memberId:it.mid,note:'(실제 출석 대조 후 복구)'},'repair:'+it.scheduleId+':'+uid());return r;
- }catch(e){return{ok:false,error:e.message};}
+  const s=await refreshSessionIfNeeded();
+  if(!s||!s.user_id)return{ok:false,error:'로그인이 필요합니다'};
+  const ts=new Date(it.date+'T'+(it.time||'10:00')+':00').getTime();
+  try{
+    if(!await prepareServerChange())return {ok:false,error:'동기화를 완료하지 못했습니다'};
+    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session_manual',{
+      method:'POST',
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+s.access_token,'Content-Type':'application/json'},
+      body:JSON.stringify({p_owner_id:s.user_id,p_member_id:it.mid,p_session_type:it.type,p_session_ts:ts,p_note:'(점검 복구)'})
+    });
+    const result=await res.json();
+    if(!res.ok||result.ok===false){
+      console.error('[점검복구] 실패:',result);
+      return{ok:false,error:result.error==='no remaining sessions'?'잔여 횟수 0 (수강권 추가 필요)':(result.error||'서버 오류')};
+    }
+    return{ok:true};
+  }catch(e){
+    console.error('[점검복구] 네트워크 오류:',e);
+    return{ok:false,error:'네트워크 오류'};
+  }
 }
 async function fixMissing(i,btn){
   const it=_auditItems[i];
   if(!it||it.fixed)return;
-  if(!confirm(it.name+'님 '+it.date+' 실제 출석을 확인했고, 같은 수업의 기존 기록이 없는 것이 맞습니까? 새 기록을 추가하고 1회를 차감합니다.'))return;
+  if(!confirm(it.name+'님 '+it.date+' 수업 기록을 추가하고 잔여를 1회 차감할까요?'))return;
   if(btn){btn.disabled=true;btn.textContent='처리 중...';}
   const r=await fixMissingSession(it);
   if(r.ok){
@@ -3424,7 +3914,29 @@ async function fixMissing(i,btn){
     alert('복구 실패: '+r.error);
   }
 }
-async function fixAllMissing(){alert('일괄 복구는 지원하지 않습니다. 실제 출석을 확인하고 예약별로 복구해주세요.');}
+async function fixAllMissing(btn){
+  const todo=_auditItems.filter(function(x){return !x.fixed;});
+  if(!todo.length)return;
+  if(!confirm('누락된 '+todo.length+'건의 수업 기록을 모두 추가하고 잔여 횟수를 차감할까요?'))return;
+  if(btn){btn.disabled=true;btn.textContent='복구 중...';}
+  let ok=0,fail=[];
+  for(let i=0;i<_auditItems.length;i++){
+    const it=_auditItems[i];
+    if(it.fixed)continue;
+    const r=await fixMissingSession(it);
+    if(r.ok){
+      it.fixed=true;ok++;
+      const row=document.getElementById('audit-item-'+i);
+      if(row){row.style.opacity='0.55';const b=row.querySelector('button');if(b){b.textContent='✅ 복구됨';b.disabled=true;}}
+    }else{
+      fail.push(it.name+' '+it.date+' ('+r.error+')');
+    }
+  }
+  if(btn){btn.disabled=false;btn.textContent='⚡ 전체 복구';}
+  await syncFromCloud(true);
+  refreshCurrentView();
+  alert('✅ '+ok+'건 복구 완료!'+(fail.length?'\n\n❌ 실패 '+fail.length+'건:\n'+fail.join('\n'):''));
+}
 
 // ── 알림 ──
 const NOTIFY_READ_KEY='pilates_notify_read_v1';
@@ -3675,17 +4187,17 @@ function updateNotifyBadge(){
 
 // ── 통계 렌더 ──
 function renderStats(){
-  const ms=loadAllM();
+  const ms=loadM();
   const ss=loadS();
   const now=new Date();
   const thisMonth=now.getFullYear()+'-'+(now.getMonth()+1).toString().padStart(2,'0');
-  const totalRevenue=ms.reduce((s,m)=>(m.renewHistory||[]).reduce((a,h)=>a+numberV3(h.price),s),0);
-  const monthRevenue=ms.reduce((s,m)=>(m.renewHistory||[]).filter(h=>h.date&&h.date.startsWith(thisMonth)).reduce((a,h)=>a+numberV3(h.price),s),0);
+  const totalRevenue=ms.reduce((s,m)=>(m.renewHistory||[]).reduce((a,h)=>a+(h.price||0),s),0);
+  const monthRevenue=ms.reduce((s,m)=>(m.renewHistory||[]).filter(h=>h.date&&h.date.startsWith(thisMonth)).reduce((a,h)=>a+(h.price||0),s),0);
   // 삭제된 회원의 남은 기록(고아 기록)은 통계에서 제외
   const liveIds={};ms.forEach(function(m){liveIds[m.id]=true;});
   const allSessions=Object.keys(ss).filter(function(id){return liveIds[id];}).reduce(function(a,id){return a.concat(ss[id]||[]);},[]);
   const monthSessions=allSessions.filter(s=>{const d=new Date(s.ts);return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();});
-  const birthdayMs=ms.filter(m=>{if(m.archived||!m.birthday)return false;const b=new Date(m.birthday);return b.getMonth()===now.getMonth();});
+  const birthdayMs=ms.filter(m=>{if(!m.birthday)return false;const b=new Date(m.birthday);return b.getMonth()===now.getMonth();});
   const months=[];
   for(let i=5;i>=0;i--){
     const d=new Date(now.getFullYear(),now.getMonth()-i,1);
@@ -3736,7 +4248,7 @@ function renderStats(){
       +'<div style="height:100%;width:'+pct+'%;background:var(--ac);border-radius:99px;"></div></div></div>';
   }).join('') || '<div style="color:var(--mt);font-size:12px;text-align:center;padding:10px;">수업 기록이 없습니다</div>';
 
-  let revenueRows=ms.map(m=>({name:m.name,total:(m.renewHistory||[]).reduce((s,h)=>s+numberV3(h.price),0),count:(m.renewHistory||[]).length}))
+  let revenueRows=ms.map(m=>({name:m.name,total:(m.renewHistory||[]).reduce((s,h)=>s+(h.price||0),0),count:(m.renewHistory||[]).length}))
     .sort((a,b)=>b.total-a.total)
     .map(function(m,i){
       return '<div class="det-row"><span class="det-key">'+(i+1)+'. '+m.name+'</span>'
@@ -3746,12 +4258,11 @@ function renderStats(){
 
   document.getElementById('stats-content').innerHTML=
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">'
-    +'<div class="sc"><div class="sc-label">이번 달 등록금액</div><div class="sc-val" style="color:var(--ac);font-size:20px;">'+monthRevenue.toLocaleString('ko-KR')+'</div><div class="sc-sub">원</div></div>'
-    +'<div class="sc"><div class="sc-label">누적 등록금액</div><div class="sc-val" style="color:var(--tx);font-size:20px;">'+totalRevenue.toLocaleString('ko-KR')+'</div><div class="sc-sub">원</div></div>'
+    +'<div class="sc"><div class="sc-label">이번 달 매출</div><div class="sc-val" style="color:var(--ac);font-size:20px;">'+monthRevenue.toLocaleString('ko-KR')+'</div><div class="sc-sub">원</div></div>'
+    +'<div class="sc"><div class="sc-label">누적 총 매출</div><div class="sc-val" style="color:var(--tx);font-size:20px;">'+totalRevenue.toLocaleString('ko-KR')+'</div><div class="sc-sub">원</div></div>'
     +'<div class="sc"><div class="sc-label">이번 달 수업</div><div class="sc-val" style="color:var(--ac);">'+monthSessions.length+'</div><div class="sc-sub">회</div></div>'
-    +'<div class="sc"><div class="sc-label">전체 등록 회원</div><div class="sc-val" style="color:var(--tx);">'+ms.length+'</div><div class="sc-sub">명</div></div>'
+    +'<div class="sc"><div class="sc-label">전체 회원</div><div class="sc-val" style="color:var(--tx);">'+ms.length+'</div><div class="sc-sub">명</div></div>'
     +'</div>'
-    +'<div style="font-size:12px;color:var(--mt);margin-bottom:12px;">금액은 미수금을 포함한 계약 등록금액입니다. 실제 입금액이 아닙니다. 보관 회원의 등록금액·수업은 유지하며, 회원 없는 이전 기록은 별도 점검 대상으로 제외합니다.</div>'
     +birthdayHtml
     +'<div class="det-card" style="margin-bottom:12px;"><div class="det-card-hdr"><div class="det-card-title">📈 월별 수업 횟수</div></div>'
     +'<div style="padding:14px;">'
@@ -3759,7 +4270,7 @@ function renderStats(){
     +'<div style="display:flex;gap:6px;">'+labelHtml+'</div></div></div>'
     +'<div class="det-card" style="margin-bottom:12px;"><div class="det-card-hdr"><div class="det-card-title">🤸 수업 유형 분포</div></div>'
     +'<div style="padding:10px 14px;">'+typeHtml+'</div></div>'
-    +'<div class="det-card"><div class="det-card-hdr"><div class="det-card-title">💰 회원별 누적 등록금액</div></div>'
+    +'<div class="det-card"><div class="det-card-hdr"><div class="det-card-title">💰 회원별 누적 매출</div></div>'
     +'<div style="padding:0 14px;">'+revenueRows+'</div></div>';
 }
 
@@ -3807,34 +4318,128 @@ function syncBirthday(){
   }
 }
 
-async function quickEditMemo(id){
- const original=loadM().find(m=>m.id===id);if(!original)return;
- const value=prompt('메모 수정',original.memo||'');if(value===null)return;
- if(!await prepareServerChange())return;
- const ms=loadM(),m=ms.find(x=>x.id===id);if(!m)return;
- if((m.memo||'')!==(original.memo||'')){alert('다른 기기에서 메모가 변경됐습니다. 다시 확인해주세요.');return;}
- m.memo=value.trim();if(await saveM(ms))showDetail(id);else alert('저장 결과를 확인해주세요.');
+function quickEditMemo(id){
+  const m=loadM().find(x=>x.id===id);if(!m)return;
+  const newMemo=prompt('주의사항 수정:', m.memo||'');
+  if(newMemo===null)return;
+  const ms=loadM(),idx=ms.findIndex(x=>x.id===id);
+  if(idx>=0){ms[idx].memo=newMemo.trim();saveM(ms);}
+  showDetail(id);
 }
 // ── 지난 일정 자동 차감 ──
 async function autoCompleteSchedules(){
- if(!_v3Ready)return false;
- if(!await syncFromCloud(true))return false;
- const now=Date.now(),pending=loadSch().filter(s=>!s.done&&!s.cancelled&&new Date(s.date+'T'+(s.endTime||s.startTime||'23:59')+':00').getTime()<=now);
- let changed=false;
- for(const sc of pending){
-  if(_deductInFlight.has(sc.id))continue;_deductInFlight.add(sc.id);
-  try{const r=await callV3(sc.memberId?'complete':'complete_guest',{scheduleId:sc.id,...(sc.memberId?{memberId:sc.memberId}:{})},'auto:'+sc.id+':'+uid());if(r.ok&&!r.skipped)changed=true;else if(!r.ok)console.warn('자동완료 보류',sc.id,r.error);}
-  catch(e){console.warn('자동완료 응답 확인 필요',e.message);}finally{_deductInFlight.delete(sc.id);}
- }
- if(changed)await syncFromCloud(true);return changed;
+  const now=new Date();
+  const schs=loadSch();
+  const pending=schs.filter(function(s){
+    if(s.done||!s.date||!s.memberId)return false;
+    const endTimeStr=s.endTime||s.startTime||'23:59';
+    const endDt=new Date(s.date+'T'+endTimeStr+':00');
+    // 안전장치: 종료 시간이 시작 시간보다 앞서 저장된 경우(입력 실수, 자정 넘김 등)
+    // 시작도 안 한 수업이 즉시 완료되는 것을 막기 위해 시작 시간 경과도 함께 요구
+    const startDt=s.startTime?new Date(s.date+'T'+s.startTime+':00'):endDt;
+    return endDt<=now&&startDt<=now;
+  });
+  if(!pending.length)return false;
+  const s0=await refreshSessionIfNeeded();
+  if(!s0||!s0.user_id)return false;
+  let anyChanged=false;
+  for(const s of pending){
+    if(_deductInFlight.has(s.id))continue; // 다른 경로(수동버튼/타이머)가 이미 처리 중이면 건너뜀
+    _deductInFlight.add(s.id);
+    try{
+      if(!await prepareServerChange(true))return;
+    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
+        method:'POST',
+        headers:{
+          'apikey':SB_KEY,
+          'Authorization':'Bearer '+s0.access_token,
+          'Content-Type':'application/json'
+        },
+        body:JSON.stringify({
+          p_owner_id:s0.user_id,
+          p_schedule_id:s.id,
+          p_member_id:s.memberId,
+          p_session_type:s.type||'기구 필라테스 (개인)',
+          p_session_ts:new Date(s.date+'T'+(s.endTime||s.startTime||'23:59')+':00').getTime()
+        })
+      });
+      const result=await res.json();
+      if(res.ok&&(result.ok||result.skipped)){
+        anyChanged=true;
+      }else{
+        console.error('[자동완료] 실패:',s.id,result);
+      }
+    }catch(e){
+      console.error('[자동완료] 네트워크 오류:',s.id,e);
+    }finally{
+      _deductInFlight.delete(s.id);
+    }
+  }
+  if(anyChanged){
+    await syncFromCloud(true); // 서버 처리 후 최신 데이터 pull
+  }
+  return anyChanged;
 }
 
 
 // ── 수업 종료 시간 타이머 자동 차감 ──
-function scheduleAutoComplete(){/* 20초 동기화에서 최신 예약으로 처리합니다. */}
+function scheduleAutoComplete(){
+  const now=new Date();
+  const schs=loadSch().filter(function(s){return !s.done;});
+  schs.forEach(function(s){
+    if(!s.date||!s.endTime)return;
+    const endTime=new Date(s.date+'T'+s.endTime+':00');
+    const msUntilEnd=endTime-now;
+    if(msUntilEnd<=0)return; // 이미 지남 (autoCompleteSchedules에서 처리)
+    if(msUntilEnd>24*60*60*1000)return; // 24시간 이상 남은 건 스킵
+    // 종료 시간에 맞춰 타이머 설정
+    setTimeout(async function(){
+      const schs2=loadSch();
+      const idx=schs2.findIndex(function(x){return x.id===s.id;});
+      if(idx<0||schs2[idx].done)return;
+      if(!s.memberId){
+        // 회원 없는 일정(체험 등)은 done만 처리
+        schs2[idx].done=true;saveSch(schs2);
+        if(document.getElementById('view-calendar').classList.contains('active'))renderCalView();
+        return;
+      }
+      // 서버 RPC로 차감 (중복 방지)
+      if(_deductInFlight.has(s.id))return; // 다른 경로가 이미 처리 중
+      _deductInFlight.add(s.id);
+      const s0=await refreshSessionIfNeeded();
+      if(!s0||!s0.user_id){_deductInFlight.delete(s.id);return;}
+      try{
+        if(!await prepareServerChange(true))return;
+    const res=await fetch(SB_URL+'/rest/v1/rpc/deduct_session',{
+          method:'POST',
+          headers:{'apikey':SB_KEY,'Authorization':'Bearer '+s0.access_token,'Content-Type':'application/json'},
+          body:JSON.stringify({
+            p_owner_id:s0.user_id,
+            p_schedule_id:s.id,
+            p_member_id:s.memberId,
+            p_session_type:s.type||'기구 필라테스 (개인)',
+            p_session_ts:endTime.getTime()
+          })
+        });
+        const result=await res.json();
+        if(res.ok&&(result.ok||result.skipped)){
+          await syncFromCloud(true);
+          if(document.getElementById('view-calendar').classList.contains('active'))renderCalView();
+          renderDash();
+          updateNotifyBadge();
+        }else{
+          console.error('[타이머차감] 실패:',s.id,result);
+        }
+      }catch(e){
+        console.error('[타이머차감] 네트워크 오류:',s.id,e);
+      }finally{
+        _deductInFlight.delete(s.id);
+      }
+    }, msUntilEnd);
+  });
+}
 
 async function bootApp(){
-  if(!await startupV3())return;
   await syncFromCloud(false);   // 클라우드 데이터 먼저 받아오기
   await autoCompleteSchedules(); // 서버에서 처리 (중복 차감 방지)
   scheduleAutoComplete();
@@ -3857,110 +4462,6 @@ async function initApp(){
   if(!ok)return;
   await bootApp();
 }
-// ── 통합 v3: 서버 전용 출석 처리 / 낙관적 저장 충돌 차단 ──
-let _v3Ready=false,_v3LastError='',_v3Tail=Promise.resolve();
-const _v3LastCommit=new Map();
-function numberV3(v){const n=Number(v);return Number.isFinite(n)&&n>=0?n:0;}
-function intInputV3(v,label,min=0){const n=Number(v);if(!Number.isSafeInteger(n)||n<min||n>2147483647)throw Error(label+' 값을 확인해주세요.');return n;}
-function escapeV3(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function pendingV3Key(){const s=getSession();return 'pilates_v3_pending_'+(s?.user_id||'unknown');}
-function readPendingV3(){try{return JSON.parse(localStorage.getItem(pendingV3Key()))||{};}catch{throw Error('미확인 요청 저장소가 손상됐습니다. 자료를 백업해주세요.');}}
-function callV3(action,payload={},requestId=null){
- const job=_v3Tail.catch(()=>{}).then(async()=>{
-  const session=await refreshSessionIfNeeded();if(!session?.user_id)throw Error('로그인이 필요합니다.');
-  let pending=null;
-  if(action!=='snapshot'){
-   if(!requestId)requestId='request:'+uid();pending=readPendingV3();
-   if(pending[requestId]&&(!sameData(pending[requestId].payload,payload)||pending[requestId].action!==action))throw Error('응답 미확인 요청이 있습니다. 이전 요청 결과부터 확인해주세요.');
-   pending[requestId]={action,payload,at:new Date().toISOString()};localStorage.setItem(pendingV3Key(),JSON.stringify(pending));
-  }
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
-  try{
-   const response=await fetch(SB_URL+'/rest/v1/rpc/pilates_v3',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},body:JSON.stringify({p_owner_id:session.user_id,p_action:action,p_payload:payload,p_request_id:requestId}),signal:controller.signal});
-   const r=await response.json();
-   if(!response.ok)throw Error(r.message||'서버 통합 함수가 준비되지 않았습니다. 01_server.sql 적용 여부를 확인해주세요.');
-   if(!r||typeof r.ok!=='boolean')throw Error('서버 응답 형식 오류');
-   if(pending){const latest=readPendingV3();delete latest[requestId];localStorage.setItem(pendingV3Key(),JSON.stringify(latest));}
-   return r;
-  }catch(e){throw Error('처리 결과를 확인하지 못했습니다. 같은 수업을 새로 등록하지 마세요. '+e.message);}
-  finally{clearTimeout(timer);}
- });_v3Tail=job;return job;
-}
-async function mutateV3(action,payload,id=null){
- try{
-  if(!_v3Ready)throw Error('서버 기준 정리가 필요합니다. 새로고침 후 안내를 확인해주세요.');
-  if(!await prepareServerChange())return false;
-  // 다른 요청의 응답 유실이 있으면 새 작업을 만들지 않고 기존 요청부터 재확인.
-  const pending=readPendingV3();
-  for(const [rid,p] of Object.entries(pending)){
-   const r=await callV3(p.action,p.payload,rid);if(!r.ok)throw Error(r.error);
-  }
-  if(Object.keys(pending).length){await syncFromCloud(true);refreshCurrentView();alert('이전 미확인 요청의 처리를 확인했습니다. 현재 기록을 확인한 뒤 필요한 작업만 다시 선택해주세요.');return false;}
-  const r=await callV3(action,payload,id||('operation:'+uid()));
-  if(!r.ok)throw Error(r.error==='no remaining sessions'?'잔여 횟수가 없습니다.':r.error);
-  if(!await syncFromCloud(true))throw Error('서버 처리는 완료됐지만 최신 화면을 불러오지 못했습니다. 새로 등록하지 말고 동기화해주세요.');
-  refreshCurrentView();return true;
- }catch(e){alert(e.message);return false;}
-}
-async function deleteLessonV3(mid,sid){
- if(!confirm('실제로 잘못 등록한 수업인지 확인하셨나요? 삭제하면 1회를 복원합니다. 연결 예약은 취소하여 자동 재차감을 막습니다.'))return false;
- return mutateV3('delete_session',{memberId:mid,sessionId:sid});
-}
-function applySnapshotV3(snap){
- for(const [key,name] of [[SK,'members'],[SK2,'sessions'],[SK3,'schedules']]){
-  preserveCopy(key);localStorage.setItem(key,JSON.stringify(snap[name]));clearDirty(key);localStorage.removeItem(localUpdatedKey(key));setBaseData(key,snap[name]);
- }
-}
-function gateV3(title,body,buttons){
- let el=document.getElementById('v3-gate');if(!el){el=document.createElement('div');el.id='v3-gate';document.body.appendChild(el);}
- el.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto';
- el.innerHTML='<div style="background:var(--s1,#fff);color:var(--tx,#222);border:1px solid var(--bd,#aaa);border-radius:18px;padding:24px;max-width:620px;width:100%;max-height:90vh;overflow:auto"><h2 style="margin-top:0">'+escapeV3(title)+'</h2>'+body+'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:18px">'+buttons+'</div></div>';
-}
-async function startupV3(){
- try{
-  if(Intl.DateTimeFormat().resolvedOptions().timeZone!=='Asia/Seoul')throw Error('이 앱은 한국시간 기준입니다. 기기 시간대를 서울(Asia/Seoul)로 설정해주세요.');
-  const snap=await callV3('snapshot');if(!snap.ok)throw Error(snap.error);
-  if(snap.version!==3)throw Error('서버 버전이 맞지 않습니다.');
-  if(snap.blocked){gateV3('기존 자료 대조가 필요합니다','<p>'+(snap.warnings||[]).map(escapeV3).join('<br>')+'</p><p>임의 보정하지 않고 시작을 중단했습니다. 원본을 내려받아 실제 출석과 대조해주세요.</p>','<button id=\"v3-blocked-server\">서버 원본 백업</button><button id=\"v3-blocked-local\">기기 백업</button>');document.getElementById('v3-blocked-server').onclick=()=>downloadV3(snap,'pilates_blocked_server.json');document.getElementById('v3-blocked-local').onclick=doBackup;return false;}
-  if([SK,SK2,SK3].some(isDirty)){
-   gateV3('기기에 미전송 자료가 있습니다','<p>기존 자료를 임의로 서버에 덮어쓰지 않습니다. 먼저 기기 백업을 내려받아 서버 자료와 대조해주세요. 서버 원본을 선택하면 미전송 변경은 복구 사본으로 보존하고 적용을 중단합니다.</p>',
-    '<button id="v3-backup">기기 백업 받기</button><button id="v3-use-server">백업 후 서버 원본 선택</button>');
-   document.getElementById('v3-backup').onclick=doBackup;
-   document.getElementById('v3-use-server').onclick=()=>{if(confirm('기기 백업을 받았고, 미전송 변경 대신 서버 원본을 사용하시겠습니까?')){applySnapshotV3(snap);location.reload();}};return false;
-  }
-  if(!snap.ready){
-   const rows=(snap.diagnostics||[]).map(d=>'<li>'+escapeV3(d.name)+' — 저장된 사용 '+escapeV3(d.storedUsed??'없음')+' / 수업기록 '+escapeV3(d.recordCount)+' / 총 등록 '+escapeV3(d.capacity)+'</li>').join('');
-   const warnings=(snap.warnings||[]).map(w=>'<li>'+escapeV3(w)+'</li>').join('');
-   gateV3('통합 v3 최초 점검',
-    '<p>수업기록을 기준으로 사용 횟수를 통일합니다. 원래 횟수와 모든 수업기록을 보존하며 서버에 변경 전 사본을 남깁니다. 실제 출석이 맞다는 확인을 대신하지 않습니다.</p><p>불일치 '+(snap.diagnostics||[]).length+'명</p><ul>'+rows+'</ul><ul>'+warnings+'</ul><p>중복 ID 등 자료 오류가 있으면 정리를 중단합니다. 실제 출석과 대조하지 않은 기록은 삭제하지 마세요.</p>',
-    '<button id="v3-download">서버 원본 백업</button><button id="v3-reconcile">백업 후 수업기록 기준으로 정리</button>');
-   document.getElementById('v3-download').onclick=()=>downloadV3(snap,'pilates_server_before_v3.json');
-   document.getElementById('v3-reconcile').onclick=async function(){
-    if(!confirm('원본 백업을 받았으며, 저장된 수업기록 수를 사용 횟수의 기준으로 적용하시겠습니까? 잘못된 출석은 별도 대조가 필요합니다.'))return;
-    this.disabled=true;
-    try{const r=await callV3('reconcile',{confirm:true,expected:{members:snap.members,sessions:snap.sessions,schedules:snap.schedules}},'reconcile:'+uid());if(!r.ok)throw Error(r.error);applySnapshotV3(r);location.reload();}
-    catch(e){alert(e.message);this.disabled=false;}
-   };return false;
-  }
-  // 응답 유실 작업을 같은 번호로 재확인. 새 차감 번호를 만들지 않습니다.
-  for(const [id,p] of Object.entries(readPendingV3())){const r=await callV3(p.action,p.payload,id);if(!r.ok)throw Error(r.error);}
-  // 응답 재확인으로 데이터가 달라졌을 수 있으므로 다시 읽습니다.
-  const fresh=await callV3('snapshot');if(!fresh.ok)throw Error(fresh.error);
-  applySnapshotV3(fresh);_v3Ready=true;return true;
- }catch(e){gateV3('통합 v3 시작을 보류했습니다','<p>'+escapeV3(e.message)+'</p><p>기존 자료는 삭제하지 않았습니다. 서버 SQL을 먼저 적용하고 모든 기존 앱 탭을 닫은 뒤 새 파일로 접속해주세요.</p>','<button onclick="location.reload()">다시 확인</button>');return false;}
-}
-function downloadV3(data,name){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-
-async function linkAuditV3(i){const it=_auditItems[i];if(!it?.candidateId)return;
- if(!confirm(it.name+'님 '+it.date+' 직접 등록 수업이 이 예약과 같은 수업이 맞습니까? 추가 차감 없이 연결합니다.'))return;
- if(await mutateV3('link_session',{memberId:it.mid,scheduleId:it.scheduleId,sessionId:it.candidateId}))runAudit();
-}
-
-function allocateBookingsV3(hist,sessions,schedules){
- const used=allocateTicketUsage(hist,sessions),booked=hist.map(()=>0);let count=schedules.length;
- booked.forEach((_,i)=>{const available=Math.max(0,numberV3(hist[i].count)-used[i]);booked[i]=i===booked.length-1?count:Math.min(available,count);count-=booked[i];});return booked;
-}
-
 initApp();
 </script>
 <script>
