@@ -4213,6 +4213,7 @@ function updateNotifyBadge(){
 }
 
 // ── 통계 렌더 ──
+const APP_BUILD='2026-10-31 r3 (매출·중복방지 수정판)';
 function renderStats(){
   const ms=loadM();
   const ss=loadS();
@@ -4296,6 +4297,13 @@ function renderStats(){
       +'<div style="height:100%;width:'+pct+'%;background:var(--ac);border-radius:99px;"></div></div></div>';
   }).join('') || '<div style="color:var(--mt);font-size:12px;text-align:center;padding:10px;">수업 기록이 없습니다</div>';
 
+  const monthDetailRows=monthTickets.slice().sort(function(a,b){return String(b.h.date).localeCompare(String(a.h.date));}).map(function(x){
+    const b=billedOf(x.h),u=unpaidOf(x.h);
+    return '<div class="det-row"><span class="det-key">'+x.m.name+' <span style="font-size:10px;color:var(--mt);">'+String(x.h.date).slice(5).replace('-','/')+' · '+(x.h.count||0)+'회권</span></span>'
+      +'<span style="font-weight:600;">'+(b-u).toLocaleString('ko-KR')+'원'
+      +(u>0?' <span style="font-size:10px;color:var(--red);">(결제 '+b.toLocaleString('ko-KR')+' 중 미수 '+u.toLocaleString('ko-KR')+')</span>':'')
+      +'</span></div>';
+  }).join('')||'<div style="padding:14px;text-align:center;color:var(--mt);font-size:12px;">이번 달에 시작한 수강권이 없습니다 (수강권 시작일 기준)</div>';
   const maxRev=Math.max.apply(null,months.map(function(m){return m.rev;}).concat([1]));
   let revBarHtml=months.map(function(m){
     const h=Math.round((m.rev/maxRev)*64)+4;
@@ -4336,8 +4344,11 @@ function renderStats(){
     +'<div style="display:flex;gap:6px;">'+labelHtml+'</div></div></div>'
     +'<div class="det-card" style="margin-bottom:12px;"><div class="det-card-hdr"><div class="det-card-title">🤸 수업 유형 분포</div></div>'
     +'<div style="padding:10px 14px;">'+typeHtml+'</div></div>'
+    +'<div class="det-card" style="margin-bottom:12px;"><div class="det-card-hdr"><div class="det-card-title">🧾 이번 달 매출 내역 ('+monthTickets.length+'건)</div></div>'
+    +'<div style="padding:0 14px;">'+monthDetailRows+'</div></div>'
     +'<div class="det-card"><div class="det-card-hdr"><div class="det-card-title">💰 회원별 누적 매출</div></div>'
-    +'<div style="padding:0 14px;">'+revenueRows+'</div></div>';
+    +'<div style="padding:0 14px;">'+revenueRows+'</div></div>'
+    +'<div style="text-align:center;font-size:10px;color:var(--mt);margin:14px 0 4px;">앱 버전 '+APP_BUILD+'</div>';
 }
 
 // ── 메모 빠른 수정 ──
